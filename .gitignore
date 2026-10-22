@@ -1,0 +1,26 @@
+# Local-only: assistant instructions, architecture and decision notes
+CLAUDE.md
+.claude/
+/docs/
+
+# Secrets: every .env variant except the committed template
+.env*
+!.env.example
+
+# WhatsApp session credentials (Baileys)
+bridge/auth/
+
+# Generated reports may contain real names and amounts
+*.xlsx
+
+# Terraform local state and plugins
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Python tooling
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
