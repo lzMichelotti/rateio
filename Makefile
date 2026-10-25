@@ -5,7 +5,7 @@
 -include .env
 export
 
-.PHONY: up down migrate test fmt lint
+.PHONY: up down migrate test fmt lint typecheck check
 
 up:  ## start Postgres and wait until it is healthy
 	docker compose up -d --wait
@@ -25,3 +25,8 @@ fmt:  ## format the code
 lint:  ## check formatting and lint rules
 	uv run ruff format --check .
 	uv run ruff check .
+
+typecheck:  ## strict type check of the domain (src/ledger)
+	uv run mypy
+
+check: lint typecheck test  ## everything, in order; stops at the first failure

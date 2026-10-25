@@ -4,10 +4,12 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from uuid import UUID, uuid4
 
 import psycopg
 import pytest
 from psycopg.conninfo import make_conninfo
+from psycopg.types.json import Jsonb
 
 TEST_DBNAME = "rateio_test"
 SEED_FILE = Path(__file__).parent / "fixtures" / "participants.sql"
@@ -49,3 +51,62 @@ def conn(database_url: str):
     with psycopg.connect(database_url) as conn:
         yield conn
         conn.rollback()
+
+
+@pytest.fixture
+def make_book(conn):
+    """Factory: each call creates a fresh, empty book and returns its id."""
+
+    def make() -> UUID:
+        return conn.execute(
+            """
+            INSERT INTO book (name, starts_on, ends_on)
+            VALUES ('Example trip', '2026-12-25', '2027-01-05')
+            RETURNING id
+            """
+        ).fetchone()[0]
+
+    return make
+
+
+@pytest.fixture
+def book(make_book) -> UUID:
+    """A fresh, empty book. Gone after the test, like everything on `conn`."""
+    return make_book()
+
+
+@pytest.fixture
+def make_command(conn, book):
+    """Factory: each call lands a fake inbound message and its record_expense command.
+
+    Returns the command id. Reusing one id simulates a redelivered command.
+    The command belongs to the `book` fixture unless another book_id is given.
+    """
+
+    def make(
+        participant_id: str = "lotti",
+        payload: dict | None = None,
+        book_id: UUID | None = None,
+    ) -> UUID:
+        message_id = conn.execute(
+            """
+            INSERT INTO inbound_message
+                (channel, conversation_external_id, sender_external_id,
+                 dedupe_key, raw_payload)
+            VALUES ('test', '120000000000000001@g.us', '5500000000001@s.whatsapp.net',
+                    %s, %s)
+            RETURNING id
+            """,
+            (uuid4().hex, Jsonb({})),
+        ).fetchone()[0]
+        return conn.execute(
+            """
+            INSERT INTO command
+                (inbound_message_id, book_id, participant_id, kind, payload, source)
+            VALUES (%s, %s, %s, 'record_expense', %s, 'syntax')
+            RETURNING id
+            """,
+            (message_id, book_id or book, participant_id, Jsonb(payload or {})),
+        ).fetchone()[0]
+
+    return make
