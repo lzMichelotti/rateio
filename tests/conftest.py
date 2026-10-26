@@ -77,7 +77,7 @@ def book(make_book) -> UUID:
 
 @pytest.fixture
 def make_command(conn, book):
-    """Factory: each call lands a fake inbound message and its record_expense command.
+    """Factory: each call lands a fake inbound message and its command.
 
     Returns the command id. Reusing one id simulates a redelivered command.
     The command belongs to the `book` fixture unless another book_id is given.
@@ -87,6 +87,7 @@ def make_command(conn, book):
         participant_id: str = "lotti",
         payload: dict | None = None,
         book_id: UUID | None = None,
+        kind: str = "record_expense",
     ) -> UUID:
         message_id = conn.execute(
             """
@@ -103,10 +104,10 @@ def make_command(conn, book):
             """
             INSERT INTO command
                 (inbound_message_id, book_id, participant_id, kind, payload, source)
-            VALUES (%s, %s, %s, 'record_expense', %s, 'syntax')
+            VALUES (%s, %s, %s, %s, %s, 'syntax')
             RETURNING id
             """,
-            (message_id, book_id or book, participant_id, Jsonb(payload or {})),
+            (message_id, book_id or book, participant_id, kind, Jsonb(payload or {})),
         ).fetchone()[0]
 
     return make
