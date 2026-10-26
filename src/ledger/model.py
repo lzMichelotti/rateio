@@ -62,3 +62,5 @@ class Entry:
         total = sum(p.amount_cents for p in self.postings)
         if total != 0:
             raise UnbalancedEntryError(f"postings sum to {total}, not 0")
+        if (self.kind is EntryKind.REVERSAL) != (self.reverses_seq is not None):
+            raise ValueError("a reversal, and only a reversal, has reverses_seq")

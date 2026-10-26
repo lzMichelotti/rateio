@@ -1,10 +1,47 @@
 """Correcting an entry without touching it: a reversing entry that cancels it."""
 
+from collections.abc import Iterable
+
 from ledger.model import Entry, EntryKind, Posting
 
 
-def reverse(original: Entry, *, seq: int, author_id: str) -> Entry:
+class ReversalRefused(ValueError):
+    """A reversal the ledger will not record. Subclasses carry the entry numbers
+    so the channel layer can phrase the refusal for the group."""
+
+
+class AlreadyReversedError(ReversalRefused):
+    def __init__(self, original_seq: int, reversal_seq: int) -> None:
+        self.original_seq = original_seq
+        self.reversal_seq = reversal_seq
+        super().__init__(
+            f"L{original_seq} was already reversed by L{reversal_seq}; "
+            "to correct it further, record a new expense with the right amount"
+        )
+
+
+class ReversalOfReversalError(ReversalRefused):
+    def __init__(self, seq: int, reverses_seq: int) -> None:
+        self.seq = seq
+        self.reverses_seq = reverses_seq
+        super().__init__(
+            f"L{seq} is itself the reversal of L{reverses_seq} and cannot be "
+            f"reversed; to restore L{reverses_seq}, record it again as a new expense"
+        )
+
+
+def reverse(
+    original: Entry,
+    *,
+    seq: int,
+    author_id: str,
+    book_entries: Iterable[Entry],
+) -> Entry:
     """The entry that cancels `original`: every posting mirrored, sign flipped.
+
+    Refuses to reverse a reversal, and to reverse an entry that book_entries show
+    was already reversed (the database's partial unique index enforces the same
+    rule against races and direct SQL; this check is what explains it).
 
     Roles are kept, so per-role aggregates (sum of outlays, sum of shares) net out
     on their own, and positions() needs no knowledge of reversals: original plus
@@ -14,6 +51,13 @@ def reverse(original: Entry, *, seq: int, author_id: str) -> Entry:
     mistake is the one that gets corrected; when the correction happened is the
     reversal's recorded_at, assigned by the store.
     """
+    # Entry guarantees reverses_seq is set exactly when the kind is REVERSAL.
+    if original.reverses_seq is not None:
+        raise ReversalOfReversalError(original.seq, original.reverses_seq)
+    for entry in book_entries:
+        if entry.reverses_seq == original.seq:
+            raise AlreadyReversedError(original.seq, entry.seq)
+
     return Entry(
         seq=seq,
         kind=EntryKind.REVERSAL,
