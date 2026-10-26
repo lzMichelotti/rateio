@@ -16,11 +16,13 @@ class EntryKind(StrEnum):
 
 
 class Role(StrEnum):
+    """What a leg represents. There is no reversal role: a reversal mirrors the
+    original's legs with the same roles, so per-role aggregates net themselves."""
+
     OUTLAY = "outlay"
     SHARE = "share"
     SETTLEMENT_PAID = "settlement_paid"
     SETTLEMENT_RECEIVED = "settlement_received"
-    REVERSAL = "reversal"
 
 
 class UnbalancedEntryError(ValueError):
@@ -51,6 +53,8 @@ class Entry:
     description: str
     postings: tuple[Posting, ...]
     remainder_offset: int | None = None
+    # The seq of the entry this one reverses, within the same book.
+    reverses_seq: int | None = None
 
     def __post_init__(self) -> None:
         if not self.postings:
