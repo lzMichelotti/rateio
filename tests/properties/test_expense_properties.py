@@ -7,6 +7,8 @@ from hypothesis import strategies as st
 
 from ledger.expense import record_expense
 from ledger.model import Role
+from ledger.positions import positions
+from ledger.reversal import reverse
 from ledger.split import split_evenly
 
 participant_ids = st.lists(
@@ -44,6 +46,16 @@ def test_shares_sum_to_exactly_the_total(entry):
     shares = [p.amount_cents for p in entry.postings if p.role is Role.SHARE]
 
     assert -sum(shares) == outlay.amount_cents
+
+
+@given(expenses())
+def test_an_entry_and_its_reversal_contribute_zero_to_everyone(entry):
+    reversal = reverse(
+        entry, seq=entry.seq + 1, author_id=entry.author_id, book_entries=[entry]
+    )
+
+    net = positions(entry.postings + reversal.postings)
+    assert all(cents == 0 for cents in net.values())
 
 
 @given(
