@@ -11,7 +11,6 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from ledger.model import Entry, EntryKind, Posting, Role
-from ledger.reversal import reverse
 
 
 class EntryNotFoundError(LookupError):
@@ -43,10 +42,14 @@ def append_entry(
     book_id: UUID,
     command_id: UUID,
     build: Callable[[int], Entry],
-    confirmation_id: UUID | None = None,
+    confirmation_id: UUID,
 ) -> RecordedEntry:
     """Assign the book's next seq, build the entry for it, and write the entry and
     its postings in one transaction. One command never produces two entries.
+
+    The internal step of applying a confirmed proposal: only
+    store.confirmations.resolve calls it, and every entry carries the
+    confirmation that let it exist.
 
     command_id is the proposing command (the !gasto, !pix or !estorna), never the
     confirming !ok: two !ok messages are two commands, one proposal is one.
@@ -125,33 +128,6 @@ def append_entry(
                 ],
             )
         return RecordedEntry(entry_id, seq, recorded_at, created=True)
-
-
-def append_reversal(
-    conn: psycopg.Connection,
-    *,
-    book_id: UUID,
-    command_id: UUID,
-    target_seq: int,
-    author_id: str,
-) -> RecordedEntry:
-    """Reverse entry L<target_seq> of this book, through append_entry.
-
-    The book's entries are loaded inside append_entry's transaction, after the
-    book is locked, so no one can reverse the same entry between the check and
-    the write. A redelivered command returns its existing reversal before any
-    check runs: a retry is silent, while a new request to reverse the same entry
-    is refused by the domain (and, failing that, by the unique index).
-    """
-
-    def build(seq: int) -> Entry:
-        entries = book_entries(conn, book_id)
-        original = next((e for e in entries if e.seq == target_seq), None)
-        if original is None:
-            raise EntryNotFoundError(book_id, target_seq)
-        return reverse(original, seq=seq, author_id=author_id, book_entries=entries)
-
-    return append_entry(conn, book_id=book_id, command_id=command_id, build=build)
 
 
 def book_entries(conn: psycopg.Connection, book_id: UUID) -> list[Entry]:

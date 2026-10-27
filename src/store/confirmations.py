@@ -9,7 +9,7 @@ won: 1 means this call resolved it, 0 means someone else did first.
 """
 
 import random
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -20,8 +20,10 @@ from psycopg import errors
 from psycopg.types.json import Jsonb
 
 from ledger.breaks import Break, overpayment_breaks
+from ledger.expense import record_expense
 from ledger.model import Entry
 from ledger.positions import positions
+from ledger.reversal import reverse
 from ledger.settlement import record_settlement, validate_declaration
 from ledger.workflow import (
     Action,
@@ -31,7 +33,13 @@ from ledger.workflow import (
     transition_confirmation,
     transition_settlement,
 )
-from store.ledger import RecordedEntry, append_entry, book_postings
+from store.ledger import (
+    EntryNotFoundError,
+    RecordedEntry,
+    append_entry,
+    book_entries,
+    book_postings,
+)
 
 # One letter and one digit, without the ambiguous I, L, O, 0 and 1: 23 x 8 = 184.
 LETTERS = "ABCDEFGHJKMNPQRSTUVWXYZ"
@@ -99,6 +107,82 @@ def propose(
         )
 
 
+def propose_expense(
+    conn: psycopg.Connection,
+    *,
+    book_id: UUID,
+    command_id: UUID,
+    payer_id: str,
+    total_cents: int,
+    description: str,
+    occurred_on: date,
+    participant_ids: Iterable[str],
+    rng: random.Random,
+) -> Proposal:
+    """A !gasto: open the author's own confirmation for an expense.
+
+    The participants are captured now, so the !ok confirms exactly what was
+    proposed. The expense is built once here only to validate it.
+    """
+    ids = sorted(participant_ids)
+    record_expense(
+        seq=1,
+        occurred_on=occurred_on,
+        payer_id=payer_id,
+        total_cents=total_cents,
+        description=description,
+        participant_ids=ids,
+    )
+    return propose(
+        conn,
+        book_id=book_id,
+        command_id=command_id,
+        kind=ConfirmationKind.EXPENSE_PROPOSAL,
+        created_by=payer_id,
+        confirmer=payer_id,
+        payload={
+            "payer_id": payer_id,
+            "total_cents": total_cents,
+            "description": description,
+            "occurred_on": occurred_on.isoformat(),
+            "participant_ids": ids,
+        },
+        rng=rng,
+    )
+
+
+def propose_reversal(
+    conn: psycopg.Connection,
+    *,
+    book_id: UUID,
+    command_id: UUID,
+    target_seq: int,
+    author_id: str,
+    rng: random.Random,
+) -> Proposal:
+    """A !estorna L<n>: refuse now what is already impossible (no such entry in this
+    book, a reversal, an already reversed entry), then open the author's own
+    confirmation. The !ok checks again, since the book may change meanwhile."""
+    with conn.transaction():
+        _lock_book(conn, book_id)
+        # A redelivered command answers in silence before any validation: by now
+        # its own reversal may be what makes the check fail.
+        existing = _existing_proposal(conn, command_id)
+        if existing is not None:
+            return existing
+        _reversal_of(conn, book_id, target_seq, author_id, seq=0)
+        return _insert_confirmation(
+            conn,
+            book_id,
+            command_id,
+            ConfirmationKind.REVERSAL_PROPOSAL,
+            created_by=author_id,
+            confirmer=author_id,
+            payload={"target_seq": target_seq},
+            rng=rng,
+        )
+
+
 def declare_settlement(
     conn: psycopg.Connection,
     *,
@@ -115,6 +199,11 @@ def declare_settlement(
     the payee confirms."""
     with conn.transaction():
         _lock_book(conn, book_id)
+        # A redelivered !pix answers in silence before validation: positions may
+        # have moved since, and the declaration was valid when it was made.
+        existing = _existing_proposal(conn, command_id)
+        if existing is not None:
+            return existing
         validate_declaration(
             positions(book_postings(conn, book_id)),
             payer_id=payer_id,
@@ -215,7 +304,7 @@ def resolve(
                 conn,
                 book_id=book_id,
                 command_id=command_id,
-                build=_builder(kind, payload),
+                build=_builder(conn, book_id, kind, payload, created_by),
                 confirmation_id=confirmation_id,
             )
 
@@ -283,6 +372,13 @@ def pick_code(conn: psycopg.Connection, book_id: UUID, rng: random.Random) -> st
     return rng.choice(free)
 
 
+def _existing_proposal(conn: psycopg.Connection, command_id: UUID) -> Proposal | None:
+    row = conn.execute(
+        "SELECT id, code FROM confirmation WHERE command_id = %s", (command_id,)
+    ).fetchone()
+    return None if row is None else Proposal(row[0], row[1], created=False)
+
+
 def _insert_confirmation(
     conn: psycopg.Connection,
     book_id: UUID,
@@ -293,11 +389,9 @@ def _insert_confirmation(
     payload: Mapping[str, Any],
     rng: random.Random,
 ) -> Proposal:
-    existing = conn.execute(
-        "SELECT id, code FROM confirmation WHERE command_id = %s", (command_id,)
-    ).fetchone()
+    existing = _existing_proposal(conn, command_id)
     if existing is not None:
-        return Proposal(existing[0], existing[1], created=False)
+        return existing
 
     for _ in range(MAX_CODE_ATTEMPTS):
         code = pick_code(conn, book_id, rng)
@@ -336,9 +430,17 @@ def _insert_confirmation(
 
 
 def _builder(
-    kind: ConfirmationKind, payload: Mapping[str, Any]
+    conn: psycopg.Connection,
+    book_id: UUID,
+    kind: ConfirmationKind,
+    payload: Mapping[str, Any],
+    author_id: str,
 ) -> Callable[[int], Entry]:
-    """The domain function that turns a confirmed proposal into an entry."""
+    """The domain function that turns a confirmed proposal into an entry.
+
+    It runs inside append_entry's transaction, after the book is locked, so a
+    reversal re-checks the book as it is at the moment of confirming.
+    """
     if kind is ConfirmationKind.SETTLEMENT_DECLARATION:
         return lambda seq: record_settlement(
             seq=seq,
@@ -347,7 +449,28 @@ def _builder(
             payee_id=payload["payee_id"],
             amount_cents=payload["amount_cents"],
         )
-    raise NotImplementedError(f"applying {kind.value} arrives with the next change")
+    if kind is ConfirmationKind.EXPENSE_PROPOSAL:
+        return lambda seq: record_expense(
+            seq=seq,
+            occurred_on=date.fromisoformat(payload["occurred_on"]),
+            payer_id=payload["payer_id"],
+            total_cents=payload["total_cents"],
+            description=payload["description"],
+            participant_ids=payload["participant_ids"],
+        )
+    return lambda seq: _reversal_of(
+        conn, book_id, payload["target_seq"], author_id, seq
+    )
+
+
+def _reversal_of(
+    conn: psycopg.Connection, book_id: UUID, target_seq: int, author_id: str, seq: int
+) -> Entry:
+    entries = book_entries(conn, book_id)
+    original = next((e for e in entries if e.seq == target_seq), None)
+    if original is None:
+        raise EntryNotFoundError(book_id, target_seq)
+    return reverse(original, seq=seq, author_id=author_id, book_entries=entries)
 
 
 def _lock_book(conn: psycopg.Connection, book_id: UUID) -> None:

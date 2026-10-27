@@ -1,15 +1,18 @@
+import random
 from datetime import date
 
 from ledger.expense import record_expense
 from ledger.positions import positions
-from store.ledger import append_entry, book_postings
+from ledger.workflow import Action
+from store.confirmations import propose_expense, resolve
+from store.ledger import book_postings
 
 FIVE = ["lotti", "luis", "seph", "vini", "vitor"]
 
 
-def expense(payer_id: str, total_cents: int):
-    """A builder: the store hands it the seq, it returns the domain entry."""
-    return lambda seq: record_expense(
+def expense(seq: int, payer_id: str, total_cents: int):
+    """The domain entry the store should have written for this expense."""
+    return record_expense(
         seq=seq,
         occurred_on=date(2026, 12, 26),
         payer_id=payer_id,
@@ -19,41 +22,58 @@ def expense(payer_id: str, total_cents: int):
     )
 
 
-def test_first_entry_of_a_book_gets_seq_1(conn, book, make_command):
-    recorded = append_entry(
-        conn, book_id=book, command_id=make_command(), build=expense("lotti", 30000)
-    )
+def test_first_entry_of_a_book_gets_seq_1(spend):
+    recorded = spend("lotti", 30000)
 
     assert recorded.created
     assert recorded.seq == 1
 
 
-def test_entry_and_postings_are_written_and_read_back(conn, book, make_command):
-    build = expense("lotti", 18743)
-    recorded = append_entry(conn, book_id=book, command_id=make_command(), build=build)
+def test_entry_and_postings_are_written_and_read_back(conn, book, spend):
+    recorded = spend("lotti", 18743)
 
-    kind, author, payload = conn.execute(
-        "SELECT kind, author_id, payload FROM journal_entry WHERE id = %s",
+    kind, author, payload, confirmation_id = conn.execute(
+        """
+        SELECT kind, author_id, payload, confirmation_id
+        FROM journal_entry WHERE id = %s
+        """,
         (recorded.entry_id,),
     ).fetchone()
     assert (kind, author) == ("expense", "lotti")
+    assert confirmation_id is not None
     assert payload == {
         "total_cents": 18743,
         "description": "fuel",
         "remainder_offset": 1,
         "split_rule": "even",
     }
-    assert book_postings(conn, book) == list(build(1).postings)
+    assert book_postings(conn, book) == list(expense(1, "lotti", 18743).postings)
 
 
 def test_the_same_command_twice_produces_one_entry(conn, book, make_command):
     command_id = make_command()
-    first = append_entry(
-        conn, book_id=book, command_id=command_id, build=expense("lotti", 30000)
-    )
-    again = append_entry(
-        conn, book_id=book, command_id=command_id, build=expense("lotti", 30000)
-    )
+
+    def propose_and_confirm():
+        proposal = propose_expense(
+            conn,
+            book_id=book,
+            command_id=command_id,
+            payer_id="lotti",
+            total_cents=30000,
+            description="fuel",
+            occurred_on=date(2026, 12, 26),
+            participant_ids=FIVE,
+            rng=random.Random(0),
+        )
+        return resolve(
+            conn,
+            book_id=book,
+            code=proposal.code,
+            action=Action.CONFIRM,
+            actor="lotti",
+        )
+
+    first, again = propose_and_confirm(), propose_and_confirm()
 
     entries, postings = conn.execute(
         """
@@ -63,16 +83,13 @@ def test_the_same_command_twice_produces_one_entry(conn, book, make_command):
         """,
         (book, book),
     ).fetchone()
-    assert first.created and not again.created
-    assert (again.entry_id, again.seq) == (first.entry_id, first.seq)
+    assert first.changed and not again.changed
     assert (entries, postings) == (1, 6)
 
 
-def test_consecutive_entries_rotate_the_remainder(conn, book, make_command):
-    for _ in range(2):
-        append_entry(
-            conn, book_id=book, command_id=make_command(), build=expense("lotti", 18743)
-        )
+def test_consecutive_entries_rotate_the_remainder(conn, book, spend):
+    spend("lotti", 18743)
+    spend("lotti", 18743)
 
     rows = conn.execute(
         """
@@ -93,15 +110,10 @@ def test_consecutive_entries_rotate_the_remainder(conn, book, make_command):
     ]
 
 
-def test_positions_from_the_database_match_positions_in_memory(
-    conn, book, make_command
-):
-    builds = [expense("lotti", 30000), expense("luis", 10000), expense("vini", 18743)]
+def test_positions_from_the_database_match_positions_in_memory(conn, book, spend):
     in_memory = []
-    for build in builds:
-        recorded = append_entry(
-            conn, book_id=book, command_id=make_command(), build=build
-        )
-        in_memory.extend(build(recorded.seq).postings)
+    for payer_id, total_cents in [("lotti", 30000), ("luis", 10000), ("vini", 18743)]:
+        recorded = spend(payer_id, total_cents)
+        in_memory.extend(expense(recorded.seq, payer_id, total_cents).postings)
 
     assert positions(book_postings(conn, book)) == positions(in_memory)

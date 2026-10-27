@@ -8,7 +8,7 @@ from hypothesis import strategies as st
 
 from ledger.expense import record_expense
 from ledger.positions import positions
-from store.ledger import append_entry, book_postings
+from store.ledger import book_postings
 
 FIVE = ["lotti", "luis", "seph", "vini", "vitor"]  # seeded in the test database
 
@@ -33,19 +33,15 @@ def expense(payer_id: str, total_cents: int):
 # book, so the function-scoped fixtures are safely reset between cases.
 @settings(deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(trip=trips)
-def test_replay_reproduces_positions(conn, make_book, make_command, trip):
+def test_replay_reproduces_positions(conn, make_book, spend, trip):
     with conn.transaction(force_rollback=True):
         book_id = make_book()
         entries = []
         for payer_id, total_cents in trip:
-            build = expense(payer_id, total_cents)
-            recorded = append_entry(
-                conn,
-                book_id=book_id,
-                command_id=make_command(payer_id, book_id=book_id),
-                build=build,
+            recorded = spend(
+                payer_id, total_cents, description="expense", book_id=book_id
             )
-            entries.append(build(recorded.seq))
+            entries.append(expense(payer_id, total_cents)(recorded.seq))
 
         all_postings = [p for entry in entries for p in entry.postings]
         from_scratch = positions(all_postings)

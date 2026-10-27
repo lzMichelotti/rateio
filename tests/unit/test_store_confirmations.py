@@ -5,7 +5,6 @@ from datetime import date
 import pytest
 
 from ledger.breaks import OVERPAYMENT, Break
-from ledger.expense import record_expense
 from ledger.positions import positions
 from ledger.settlement import ExceedsDebtError
 from ledger.workflow import (
@@ -22,28 +21,15 @@ from store.confirmations import (
     propose,
     resolve,
 )
-from store.ledger import append_entry, append_reversal, book_postings
+from store.ledger import book_postings
 
-FIVE = ["lotti", "luis", "seph", "vini", "vitor"]
 DECLARED_ON = date(2026, 12, 28)
 
 
 @pytest.fixture
-def seph_paid_dinner(conn, book, make_command):
+def seph_paid_dinner(spend):
     """seph paid 500 for the five: seph +400, everyone else -100."""
-    return append_entry(
-        conn,
-        book_id=book,
-        command_id=make_command("seph"),
-        build=lambda seq: record_expense(
-            seq=seq,
-            occurred_on=date(2026, 12, 26),
-            payer_id="seph",
-            total_cents=50000,
-            description="dinner",
-            participant_ids=FIVE,
-        ),
-    )
+    return spend("seph", 50000, description="dinner")
 
 
 def declare(conn, book, make_command, amount_cents=10000, seed=0):
@@ -225,17 +211,11 @@ def test_declaring_above_the_debt_is_refused_and_writes_nothing(
 
 
 def test_confirming_after_positions_moved_records_and_reports_break_7(
-    conn, book, make_command, seph_paid_dinner
+    conn, book, make_command, seph_paid_dinner, undo
 ):
     proposal = declare(conn, book, make_command)
     # The dinner is reversed before seph confirms: luis no longer owes anything.
-    append_reversal(
-        conn,
-        book_id=book,
-        command_id=make_command(kind="reverse"),
-        target_seq=1,
-        author_id="lotti",
-    )
+    undo(1, "lotti")
     resolution = resolve(
         conn, book_id=book, code=proposal.code, action=Action.CONFIRM, actor="seph"
     )
@@ -279,3 +259,28 @@ def test_a_code_taken_meanwhile_is_retried_with_another(
 
     assert second.created
     assert second.code != first.code
+
+
+def test_a_redelivered_declaration_is_silent_even_after_positions_moved(
+    conn, book, make_command, seph_paid_dinner, undo
+):
+    command_id = make_command("luis", kind="declare_settlement")
+
+    def declare_again():
+        return declare_settlement(
+            conn,
+            book_id=book,
+            command_id=command_id,
+            payer_id="luis",
+            payee_id="seph",
+            amount_cents=10000,
+            declared_on=DECLARED_ON,
+            rng=random.Random(0),
+        )
+
+    first = declare_again()
+    undo(1, "lotti")  # luis owes nothing now: a new declaration would be refused
+    again = declare_again()
+
+    assert first.created and not again.created
+    assert again.confirmation_id == first.confirmation_id
