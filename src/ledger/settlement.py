@@ -6,6 +6,9 @@ attesting that money arrived, so it is never refused on position grounds.
 """
 
 from collections.abc import Mapping
+from datetime import date
+
+from ledger.model import Entry, EntryKind, Posting, Role
 
 
 class DeclarationRefused(ValueError):
@@ -43,3 +46,32 @@ def validate_declaration(
     debt_cents = max(0, -positions.get(payer_id, 0))
     if amount_cents > debt_cents:
         raise ExceedsDebtError(payer_id, amount_cents, debt_cents)
+
+
+def record_settlement(
+    *,
+    seq: int,
+    declared_on: date,
+    payer_id: str,
+    payee_id: str,
+    amount_cents: int,
+) -> Entry:
+    """The entry for a confirmed payment: two legs, payer up, payee down.
+
+    The payer's debt shrinks (+amount, settlement_paid) and the payee's credit
+    shrinks (-amount, settlement_received). occurred_on is the declaration date,
+    when the money moved, passed in because the domain never reads the clock;
+    recorded_at, assigned by the store, is when the payee confirmed. The author
+    is the payer, whose !pix is the proposing command the entry carries.
+    """
+    return Entry(
+        seq=seq,
+        kind=EntryKind.SETTLEMENT,
+        occurred_on=declared_on,
+        author_id=payer_id,
+        description="",
+        postings=(
+            Posting(payer_id, amount_cents, Role.SETTLEMENT_PAID),
+            Posting(payee_id, -amount_cents, Role.SETTLEMENT_RECEIVED),
+        ),
+    )

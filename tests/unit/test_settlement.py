@@ -1,6 +1,16 @@
+from collections import Counter
+from datetime import date
+
 import pytest
 
-from ledger.settlement import DeclarationRefused, ExceedsDebtError, validate_declaration
+from ledger.model import EntryKind, Posting, Role
+from ledger.positions import positions
+from ledger.settlement import (
+    DeclarationRefused,
+    ExceedsDebtError,
+    record_settlement,
+    validate_declaration,
+)
 
 # luis owes 100 to the group; seph is owed 100.
 POSITIONS = {"lotti": 0, "luis": -10000, "seph": 10000}
@@ -41,3 +51,46 @@ def test_someone_who_owes_nothing_cannot_declare_a_payment():
 def test_nonsense_declarations_are_refused(amount_cents, payer_id, payee_id):
     with pytest.raises(DeclarationRefused):
         declare(amount_cents, payer_id, payee_id)
+
+
+def test_a_settlement_entry_moves_the_payer_up_and_the_payee_down():
+    entry = record_settlement(
+        seq=7,
+        declared_on=date(2026, 12, 28),
+        payer_id="luis",
+        payee_id="seph",
+        amount_cents=10000,
+    )
+
+    assert entry.kind is EntryKind.SETTLEMENT
+    assert entry.author_id == "luis"
+    assert entry.postings == (
+        Posting("luis", 10000, Role.SETTLEMENT_PAID),
+        Posting("seph", -10000, Role.SETTLEMENT_RECEIVED),
+    )
+
+
+def test_a_settlement_happens_on_the_declaration_date():
+    entry = record_settlement(
+        seq=7,
+        declared_on=date(2026, 12, 28),
+        payer_id="luis",
+        payee_id="seph",
+        amount_cents=10000,
+    )
+
+    assert entry.occurred_on == date(2026, 12, 28)
+
+
+def test_paying_the_whole_debt_zeroes_both_positions():
+    entry = record_settlement(
+        seq=7,
+        declared_on=date(2026, 12, 28),
+        payer_id="luis",
+        payee_id="seph",
+        amount_cents=10000,
+    )
+
+    after = Counter(POSITIONS)
+    after.update(positions(entry.postings))
+    assert (after["luis"], after["seph"]) == (0, 0)
