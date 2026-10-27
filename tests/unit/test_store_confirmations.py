@@ -5,8 +5,8 @@ from datetime import date
 import pytest
 
 from ledger.breaks import OVERPAYMENT, Break
-from ledger.positions import positions
-from ledger.settlement import ExceedsDebtError
+from ledger.positions import positions, projected_positions
+from ledger.settlement import DeclaredSettlement, ExceedsDebtError
 from ledger.workflow import (
     Action,
     ConfirmationKind,
@@ -17,6 +17,7 @@ from ledger.workflow import (
 from store.confirmations import (
     ALL_CODES,
     declare_settlement,
+    declared_settlements,
     pick_code,
     propose,
     resolve,
@@ -114,6 +115,37 @@ def test_declaring_changes_no_position(conn, book, make_command, seph_paid_dinne
 
     assert positions(book_postings(conn, book)) == before
     assert settlement_row(conn, proposal.confirmation_id) == ("declared", None)
+
+
+def test_only_settlements_still_declared_are_listed(
+    conn, book, make_command, seph_paid_dinner
+):
+    confirmed, rejected, cancelled, waiting = (
+        declare(conn, book, make_command, amount_cents=2500, seed=seed)
+        for seed in range(4)
+    )
+    for proposal, action, actor in [
+        (confirmed, Action.CONFIRM, "seph"),
+        (rejected, Action.DECLINE, "seph"),
+        (cancelled, Action.DECLINE, "luis"),
+    ]:
+        resolve(conn, book_id=book, code=proposal.code, action=action, actor=actor)
+
+    assert declared_settlements(conn, book) == [
+        DeclaredSettlement(waiting.code, "luis", "seph", 2500, DECLARED_ON)
+    ]
+
+
+def test_a_declared_settlement_moves_the_projection_but_not_positions(
+    conn, book, make_command, seph_paid_dinner
+):
+    before = positions(book_postings(conn, book))
+    declare(conn, book, make_command, amount_cents=10000)
+
+    assert positions(book_postings(conn, book)) == before
+    assert projected_positions(
+        book_postings(conn, book), declared_settlements(conn, book)
+    ) == {**before, "luis": 0, "seph": 30000}
 
 
 def test_the_payee_confirms_and_only_then_the_entry_exists(

@@ -24,7 +24,11 @@ from ledger.expense import record_expense
 from ledger.model import Entry
 from ledger.positions import positions
 from ledger.reversal import reverse
-from ledger.settlement import record_settlement, validate_declaration
+from ledger.settlement import (
+    DeclaredSettlement,
+    record_settlement,
+    validate_declaration,
+)
 from ledger.workflow import (
     Action,
     ConfirmationKind,
@@ -351,6 +355,38 @@ def resolve(
                 )
 
         return Resolution(confirmation_id, transition.status, True, entry, breaks)
+
+
+def declared_settlements(
+    conn: psycopg.Connection, book_id: UUID
+) -> list[DeclaredSettlement]:
+    """Every payment in this book still waiting for the payee's !ok, oldest first.
+
+    Read for the settlement plan's projection and its pending list; never an
+    input to positions(). declared_on is the business date from the proposal,
+    the one the entry would carry, not the database clock's declared_at.
+    """
+    rows = conn.execute(
+        """
+        SELECT c.code, s.payer_id, s.payee_id, s.amount_cents,
+               c.payload ->> 'declared_on'
+        FROM settlement s
+        JOIN confirmation c ON c.id = s.confirmation_id
+        WHERE s.book_id = %s AND s.status = 'declared'
+        ORDER BY s.declared_at, c.code
+        """,
+        (book_id,),
+    ).fetchall()
+    return [
+        DeclaredSettlement(
+            code=code,
+            payer_id=payer_id,
+            payee_id=payee_id,
+            amount_cents=amount_cents,
+            declared_on=date.fromisoformat(declared_on),
+        )
+        for code, payer_id, payee_id, amount_cents, declared_on in rows
+    ]
 
 
 def pick_code(conn: psycopg.Connection, book_id: UUID, rng: random.Random) -> str:

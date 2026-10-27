@@ -1,9 +1,14 @@
 from datetime import date
 
 from ledger.expense import record_expense
-from ledger.positions import ParticipantSummary, position_summary, positions
+from ledger.positions import (
+    ParticipantSummary,
+    position_summary,
+    positions,
+    projected_positions,
+)
 from ledger.reversal import reverse
-from ledger.settlement import record_settlement
+from ledger.settlement import DeclaredSettlement, record_settlement
 
 FIVE = ["lotti", "luis", "seph", "vini", "vitor"]
 
@@ -46,6 +51,41 @@ def test_two_expenses_accumulate():
 
 def test_no_postings_no_positions():
     assert positions([]) == {}
+
+
+def test_with_nothing_declared_the_projection_is_the_positions():
+    postings = expense(1, "lotti", 30000).postings
+
+    assert projected_positions(postings, []) == positions(postings)
+
+
+def test_a_declared_settlement_is_projected_as_if_confirmed():
+    postings = expense(1, "lotti", 30000).postings
+    declared = DeclaredSettlement("A7", "luis", "lotti", 6000, date(2026, 12, 27))
+
+    assert projected_positions(postings, [declared]) == {
+        "lotti": 18000,
+        "luis": 0,
+        "seph": -6000,
+        "vini": -6000,
+        "vitor": -6000,
+    }
+
+
+def test_the_projection_matches_what_confirming_would_record():
+    spent = expense(1, "lotti", 30000)
+    confirmed = record_settlement(
+        seq=2,
+        declared_on=date(2026, 12, 27),
+        payer_id="luis",
+        payee_id="lotti",
+        amount_cents=6000,
+    )
+    declared = DeclaredSettlement("A7", "luis", "lotti", 6000, date(2026, 12, 27))
+
+    assert projected_positions(spent.postings, [declared]) == positions(
+        spent.postings + confirmed.postings
+    )
 
 
 def test_summary_of_one_expense_splits_outlay_from_share():

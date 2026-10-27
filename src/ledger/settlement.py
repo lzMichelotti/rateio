@@ -6,9 +6,25 @@ attesting that money arrived, so it is never refused on position grounds.
 """
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import date
 
 from ledger.model import Entry, EntryKind, Posting, Role
+
+
+@dataclass(frozen=True)
+class DeclaredSettlement:
+    """A payment the payer announced and the payee has not confirmed yet.
+
+    Workflow state, not a fact: it never reaches positions(). The settlement
+    plan applies it as if confirmed, so nobody is told to pay twice.
+    """
+
+    code: str
+    payer_id: str
+    payee_id: str
+    amount_cents: int
+    declared_on: date
 
 
 class DeclarationRefused(ValueError):
@@ -48,6 +64,18 @@ def validate_declaration(
         raise ExceedsDebtError(payer_id, amount_cents, debt_cents)
 
 
+def settlement_postings(
+    payer_id: str, payee_id: str, amount_cents: int
+) -> tuple[Posting, Posting]:
+    """The two legs of a payment: the payer's debt shrinks (+amount,
+    settlement_paid) and the payee's credit shrinks (-amount,
+    settlement_received). The one place that decides their signs."""
+    return (
+        Posting(payer_id, amount_cents, Role.SETTLEMENT_PAID),
+        Posting(payee_id, -amount_cents, Role.SETTLEMENT_RECEIVED),
+    )
+
+
 def record_settlement(
     *,
     seq: int,
@@ -58,8 +86,7 @@ def record_settlement(
 ) -> Entry:
     """The entry for a confirmed payment: two legs, payer up, payee down.
 
-    The payer's debt shrinks (+amount, settlement_paid) and the payee's credit
-    shrinks (-amount, settlement_received). occurred_on is the declaration date,
+    occurred_on is the declaration date,
     when the money moved, passed in because the domain never reads the clock;
     recorded_at, assigned by the store, is when the payee confirmed. The author
     is the payer, whose !pix is the proposing command the entry carries.
@@ -70,8 +97,5 @@ def record_settlement(
         occurred_on=declared_on,
         author_id=payer_id,
         description="",
-        postings=(
-            Posting(payer_id, amount_cents, Role.SETTLEMENT_PAID),
-            Posting(payee_id, -amount_cents, Role.SETTLEMENT_RECEIVED),
-        ),
+        postings=settlement_postings(payer_id, payee_id, amount_cents),
     )

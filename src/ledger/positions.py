@@ -3,8 +3,10 @@
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
+from itertools import chain
 
 from ledger.model import Posting, Role
+from ledger.settlement import DeclaredSettlement, settlement_postings
 
 
 def positions(postings: Iterable[Posting]) -> dict[str, int]:
@@ -18,6 +20,21 @@ def positions(postings: Iterable[Posting]) -> dict[str, int]:
     for posting in postings:
         totals[posting.participant_id] += posting.amount_cents
     return dict(sorted(totals.items()))
+
+
+def projected_positions(
+    postings: Iterable[Posting], declared: Iterable[DeclaredSettlement]
+) -> dict[str, int]:
+    """Positions as they will be once every declared settlement is confirmed.
+
+    Advice, not fact: the settlement plan is computed on these so it never tells
+    someone to pay again what they already sent. positions() stays confirmed
+    facts only. Each declaration contributes the same legs its !ok would write.
+    """
+    pending = (
+        settlement_postings(d.payer_id, d.payee_id, d.amount_cents) for d in declared
+    )
+    return positions(chain(postings, *pending))
 
 
 @dataclass(frozen=True)
