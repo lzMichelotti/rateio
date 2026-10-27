@@ -284,3 +284,24 @@ def test_a_redelivered_declaration_is_silent_even_after_positions_moved(
 
     assert first.created and not again.created
     assert again.confirmation_id == first.confirmation_id
+
+
+def test_reversing_a_confirmed_settlement_restores_positions_and_keeps_it_confirmed(
+    conn, book, make_command, seph_paid_dinner, undo
+):
+    before = positions(book_postings(conn, book))
+    proposal = declare(conn, book, make_command)
+    paid = resolve(
+        conn, book_id=book, code=proposal.code, action=Action.CONFIRM, actor="seph"
+    )
+    # seph confirmed by mistake: the settlement entry (L2) is reversed.
+    undo(paid.entry.seq, "seph")
+
+    net = positions(book_postings(conn, book))
+    assert {k: v for k, v in net.items() if v} == {k: v for k, v in before.items() if v}
+    # The conversation happened as recorded; the ledger says the payment no longer
+    # holds. When workflow state and the ledger disagree, the ledger is right.
+    assert settlement_row(conn, proposal.confirmation_id) == (
+        "confirmed",
+        paid.entry.entry_id,
+    )
