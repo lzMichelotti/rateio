@@ -43,9 +43,13 @@ def append_entry(
     book_id: UUID,
     command_id: UUID,
     build: Callable[[int], Entry],
+    confirmation_id: UUID | None = None,
 ) -> RecordedEntry:
     """Assign the book's next seq, build the entry for it, and write the entry and
     its postings in one transaction. One command never produces two entries.
+
+    command_id is the proposing command (the !gasto, !pix or !estorna), never the
+    confirming !ok: two !ok messages are two commands, one proposal is one.
 
     build receives the seq and returns the domain entry (which refuses to exist
     unbalanced), so the store decides the number and the domain does the maths.
@@ -85,8 +89,8 @@ def append_entry(
             """
             INSERT INTO journal_entry
                 (book_id, seq, kind, occurred_on, author_id, command_id,
-                 reverses_entry_id, payload)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                 confirmation_id, reverses_entry_id, payload)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (command_id) DO NOTHING
             RETURNING id, seq, recorded_at
             """,
@@ -97,6 +101,7 @@ def append_entry(
                 entry.occurred_on,
                 entry.author_id,
                 command_id,
+                confirmation_id,
                 reverses_entry_id,
                 Jsonb(_payload(entry)),
             ),
@@ -241,4 +246,14 @@ def _payload(entry: Entry) -> dict[str, object]:
     }
     if entry.kind is EntryKind.EXPENSE:
         payload["split_rule"] = "even"
+    if entry.kind is EntryKind.SETTLEMENT:
+        # No outlay legs: the amount is the payer's settlement_paid leg.
+        payload["total_cents"] = sum(
+            p.amount_cents for p in entry.postings if p.role is Role.SETTLEMENT_PAID
+        )
+        payload["counterparty"] = next(
+            p.participant_id
+            for p in entry.postings
+            if p.role is Role.SETTLEMENT_RECEIVED
+        )
     return payload
