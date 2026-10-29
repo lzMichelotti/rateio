@@ -5,7 +5,7 @@
 -include .env
 export
 
-.PHONY: up down migrate test fmt lint typecheck check
+.PHONY: up down migrate admin chat test fmt lint typecheck check
 
 up:  ## start Postgres and wait until it is healthy
 	docker compose up -d --wait
@@ -15,6 +15,9 @@ down:  ## stop Postgres (data stays in the named volume)
 
 migrate:  ## apply pending migrations to the dev database
 	uv run python -m store.migrate
+
+admin:  ## operator commands, e.g. make admin ARGS="show 'Trip'"
+	uv run python -m cli.admin $(ARGS)
 
 test:  ## run the test suite against a throwaway test database
 	uv run pytest
