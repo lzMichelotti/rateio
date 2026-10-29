@@ -17,7 +17,7 @@ module-name = ["ledger", "store", "channel", "interpreter", "jobs", "handlers"]
 
 [tool.mypy]
 strict = true
-files = "src/ledger"
+files = ["src/ledger", "src/channel"]
 python_version = "3.12"
 
 [tool.pytest]

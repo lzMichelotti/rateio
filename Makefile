@@ -26,7 +26,7 @@ lint:  ## check formatting and lint rules
 	uv run ruff format --check .
 	uv run ruff check .
 
-typecheck:  ## strict type check of the domain (src/ledger)
+typecheck:  ## strict type check of the pure modules (src/ledger, src/channel)
 	uv run mypy
 
 check: lint typecheck test  ## everything, in order; stops at the first failure
