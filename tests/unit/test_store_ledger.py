@@ -1,11 +1,13 @@
 import random
-from datetime import date
+from datetime import UTC, date, datetime
 
 from ledger.expense import record_expense
 from ledger.positions import positions
 from ledger.workflow import Action
 from store.confirmations import propose_expense, resolve
 from store.ledger import book_postings
+
+SENT_AT = datetime(2026, 12, 26, 12, 0, tzinfo=UTC)
 
 FIVE = ["lotti", "luis", "seph", "vini", "vitor"]
 
@@ -62,6 +64,7 @@ def test_the_same_command_twice_produces_one_entry(conn, book, make_command):
             total_cents=30000,
             description="fuel",
             occurred_on=date(2026, 12, 26),
+            at=SENT_AT,
             rng=random.Random(0),
         )
         return resolve(

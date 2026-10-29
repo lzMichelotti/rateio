@@ -1,5 +1,5 @@
 import random
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -8,6 +8,8 @@ from ledger.workflow import Action
 from store.books import book_members
 from store.confirmations import propose_expense, resolve
 from store.ledger import book_postings
+
+SENT_AT = datetime(2026, 12, 26, 12, 0, tzinfo=UTC)
 
 
 def test_members_are_this_books_only_sorted_by_id(conn, make_book):
@@ -43,6 +45,7 @@ def test_a_payer_who_is_not_a_member_is_refused(conn, make_book, make_command):
             total_cents=10000,
             description="fuel",
             occurred_on=date(2026, 12, 26),
+            at=SENT_AT,
             rng=random.Random(0),
         )
 
@@ -59,6 +62,7 @@ def test_someone_joining_before_the_ok_is_not_in_that_expense(
         total_cents=10000,
         description="fuel",
         occurred_on=date(2026, 12, 26),
+        at=SENT_AT,
         rng=random.Random(0),
     )
     conn.execute(

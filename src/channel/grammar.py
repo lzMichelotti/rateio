@@ -10,7 +10,6 @@ script and int() would accept them.
 """
 
 import re
-import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -28,6 +27,7 @@ from channel.commands import (
     ShowSettlementPlan,
     ShowStatement,
 )
+from ledger.text import fold
 
 # Above this an amount is a typo on a trip, and well inside bigint.
 MAX_AMOUNT_CENTS = 100_000_000  # R$ 1.000.000,00
@@ -97,13 +97,6 @@ def parse(text: str, *, members: Sequence[Member], today: date) -> Command | Par
     if read is None:
         return ParseError(ParseReason.UNKNOWN_COMMAND, token=tokens[0])
     return read(verb, tokens[1:], members, today)
-
-
-def fold(text: str) -> str:
-    """Case and accents removed: a name with accents, in capitals or plain,
-    folds to the same string."""
-    decomposed = unicodedata.normalize("NFKD", text)
-    return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
 
 
 def parse_amount(token: str) -> int | ParseReason:

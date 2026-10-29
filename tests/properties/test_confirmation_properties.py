@@ -1,7 +1,7 @@
 """Invariants of the confirmation workflow, checked against generated trips."""
 
 import random
-from datetime import date
+from datetime import UTC, date, datetime
 
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
@@ -10,6 +10,8 @@ from ledger.positions import positions
 from ledger.workflow import Action
 from store.confirmations import declare_settlement, propose_expense, resolve
 from store.ledger import book_postings
+
+SENT_AT = datetime(2026, 12, 26, 12, 0, tzinfo=UTC)
 
 FIVE = ["lotti", "luis", "seph", "vini", "vitor"]  # seeded in the test database
 DAY = date(2026, 12, 26)
@@ -117,6 +119,7 @@ def test_confirming_the_same_confirmation_n_times_creates_one_entry(
                 total_cents=12345,
                 description="expense",
                 occurred_on=DAY,
+                at=SENT_AT,
                 rng=random.Random(0),
             )
             confirmer = "vini"
@@ -181,6 +184,7 @@ def test_every_entry_has_one_confirmation_and_every_confirmed_one_one_entry(
                     total_cents=total_cents,
                     description="expense",
                     occurred_on=DAY,
+                    at=SENT_AT,
                     rng=random.Random(0),
                 )
                 if outcome != "leave":

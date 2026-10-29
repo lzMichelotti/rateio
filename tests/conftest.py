@@ -4,7 +4,7 @@ import os
 import random
 import subprocess
 import sys
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -19,6 +19,8 @@ from store.confirmations import propose_expense, propose_reversal, resolve
 TEST_DBNAME = "rateio_test"
 SEED_FILE = Path(__file__).parent / "fixtures" / "participants.sql"
 FIVE = ["lotti", "luis", "seph", "vini", "vitor"]  # the seeded participants
+# When a test message was sent: a fixed input, never the clock.
+SENT_AT = datetime(2026, 12, 26, 12, 0, tzinfo=UTC)
 
 
 @pytest.fixture(scope="session")
@@ -148,6 +150,7 @@ def spend(conn, book, make_command):
             total_cents=total_cents,
             description=description,
             occurred_on=occurred_on,
+            at=SENT_AT,
             rng=random.Random(0),
         )
         return resolve(

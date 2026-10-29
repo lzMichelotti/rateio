@@ -10,8 +10,8 @@ won: 1 means this call resolved it, 0 means someone else did first.
 
 import random
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
-from datetime import date
+from dataclasses import dataclass, replace
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -19,7 +19,14 @@ import psycopg
 from psycopg import errors
 from psycopg.types.json import Jsonb
 
-from ledger.breaks import Break, overpayment_breaks
+from ledger.breaks import (
+    DUPLICATE_WINDOW,
+    Break,
+    ExpenseIntent,
+    ProposalWarning,
+    overpayment_breaks,
+    proposal_warnings,
+)
 from ledger.expense import record_expense
 from ledger.model import Entry
 from ledger.positions import positions
@@ -86,6 +93,8 @@ class Proposal:
     confirmation_id: UUID
     code: str
     created: bool  # False: the proposing command was seen before
+    # Breaks 1 and 4 for a new expense proposal: reported, never blocking.
+    warnings: tuple[ProposalWarning, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -130,17 +139,20 @@ def propose_expense(
     total_cents: int,
     description: str,
     occurred_on: date,
+    at: datetime,
     rng: random.Random,
 ) -> Proposal:
     """A !gasto: open the author's own confirmation for an expense, split among
-    the book's members.
+    the book's members, with breaks 1 and 4 attached as warnings.
 
     The members are captured now, so the !ok confirms exactly what was proposed
     even if someone joins meanwhile. The expense is built once here only to
-    validate it.
+    validate it. at is when the message was sent; it becomes the confirmation's
+    created_at, the time break 1 compares, because the database clock is frozen
+    for the whole transaction and the domain never reads a clock.
     """
     with conn.transaction():
-        _lock_book(conn, book_id)
+        starts_on, ends_on = _lock_book(conn, book_id)
         # A redelivered command answers in silence before any validation.
         existing = _existing_proposal(conn, command_id)
         if existing is not None:
@@ -154,7 +166,14 @@ def propose_expense(
             description=description,
             participant_ids=ids,
         )
-        return _insert_confirmation(
+        warnings = proposal_warnings(
+            ExpenseIntent(payer_id, total_cents, description, at),
+            _live_expense_proposals(conn, book_id, payer_id, at),
+            occurred_on=occurred_on,
+            starts_on=starts_on,
+            ends_on=ends_on,
+        )
+        proposal = _insert_confirmation(
             conn,
             book_id,
             command_id,
@@ -169,7 +188,9 @@ def propose_expense(
                 "participant_ids": ids,
             },
             rng=rng,
+            created_at=at,
         )
+        return replace(proposal, warnings=warnings)
 
 
 def propose_reversal(
@@ -441,6 +462,7 @@ def _insert_confirmation(
     confirmer: str,
     payload: Mapping[str, Any],
     rng: random.Random,
+    created_at: datetime | None = None,
 ) -> Proposal:
     existing = _existing_proposal(conn, command_id)
     if existing is not None:
@@ -454,8 +476,9 @@ def _insert_confirmation(
                 row = conn.execute(
                     """
                     INSERT INTO confirmation
-                        (code, book_id, command_id, kind, payload, created_by, confirmer)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        (code, book_id, command_id, kind, payload, created_by,
+                         confirmer, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, coalesce(%s, now()))
                     ON CONFLICT (command_id) DO NOTHING
                     RETURNING id
                     """,
@@ -467,6 +490,7 @@ def _insert_confirmation(
                         Jsonb(dict(payload)),
                         created_by,
                         confirmer,
+                        created_at,
                     ),
                 ).fetchone()
         except errors.UniqueViolation as violation:
@@ -526,11 +550,35 @@ def _reversal_of(
     return reverse(original, seq=seq, author_id=author_id, book_entries=entries)
 
 
-def _lock_book(conn: psycopg.Connection, book_id: UUID) -> None:
-    if (
-        conn.execute(
-            "SELECT id FROM book WHERE id = %s FOR UPDATE", (book_id,)
-        ).fetchone()
-        is None
-    ):
+def _lock_book(conn: psycopg.Connection, book_id: UUID) -> tuple[date, date]:
+    """Lock the book row for this transaction; return its dates."""
+    row = conn.execute(
+        "SELECT starts_on, ends_on FROM book WHERE id = %s FOR UPDATE", (book_id,)
+    ).fetchone()
+    if row is None:
         raise LookupError(f"book {book_id} does not exist")
+    return row[0], row[1]
+
+
+def _live_expense_proposals(
+    conn: psycopg.Connection, book_id: UUID, author_id: str, at: datetime
+) -> list[ExpenseIntent]:
+    """The author's open or confirmed expense proposals from the window before
+    at: the candidates for break 1. The domain applies the exact rule."""
+    return [
+        ExpenseIntent(author_id, cents, description, created_at, code)
+        for code, created_at, cents, description in conn.execute(
+            """
+            SELECT code, created_at, (payload ->> 'total_cents')::bigint,
+                   payload ->> 'description'
+            FROM confirmation
+            WHERE book_id = %s
+              AND kind = 'expense_proposal'
+              AND created_by = %s
+              AND status IN ('open', 'confirmed')
+              AND created_at > %s - %s::interval
+              AND created_at <= %s
+            """,
+            (book_id, author_id, at, DUPLICATE_WINDOW, at),
+        )
+    ]
