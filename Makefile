@@ -19,6 +19,9 @@ migrate:  ## apply pending migrations to the dev database
 admin:  ## operator commands, e.g. make admin ARGS="show 'Trip'"
 	uv run python -m cli.admin $(ARGS)
 
+chat:  ## talk to the bot as a member, e.g. make chat CHAT=trip AS=lotti
+	uv run python -m cli.chat --chat $(CHAT) --as $(AS)
+
 test:  ## run the test suite against a throwaway test database
 	uv run pytest
 

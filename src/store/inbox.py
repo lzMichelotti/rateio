@@ -133,3 +133,36 @@ def mark_processed(conn: psycopg.Connection, inbound_id: UUID) -> None:
     conn.execute(
         "UPDATE inbound_message SET processed_at = now() WHERE id = %s", (inbound_id,)
     )
+
+
+def pending_replies(
+    conn: psycopg.Connection, conversation_id: UUID
+) -> list[tuple[UUID, str]]:
+    """(id, body) of this chat's unsent messages, oldest first, locked so two
+    senders never deliver the same one."""
+    return [
+        (row[0], row[1])
+        for row in conn.execute(
+            """
+            SELECT id, body FROM outbound_message
+            WHERE conversation_id = %s AND status = 'pending'
+            ORDER BY created_at, id
+            FOR UPDATE
+            """,
+            (conversation_id,),
+        )
+    ]
+
+
+def mark_sent(
+    conn: psycopg.Connection, outbound_id: UUID, channel_message_id: str | None = None
+) -> None:
+    conn.execute(
+        """
+        UPDATE outbound_message
+        SET status = 'sent', sent_at = now(), attempts = attempts + 1,
+            channel_message_id = %s
+        WHERE id = %s AND status = 'pending'
+        """,
+        (channel_message_id, outbound_id),
+    )
