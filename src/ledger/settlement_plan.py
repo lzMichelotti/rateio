@@ -15,9 +15,11 @@ Cost is creditors! x debtors!: 24 orderings at most for five participants,
 about 1.6 billion for sixteen split eight and eight.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import permutations
+
+from ledger.settlement import DeclaredSettlement
 
 
 class UnbalancedPositionsError(ValueError):
@@ -59,6 +61,19 @@ def settlement_plan(positions: Mapping[str, int]) -> tuple[Transfer, ...]:
         ),
         key=_rank,
     )
+
+
+def book_settled(
+    positions: Mapping[str, int], declared: Collection[DeclaredSettlement]
+) -> bool:
+    """Every confirmed position is zero and no settlement is waiting for its !ok.
+
+    Derived on demand, never stored: a stored "settled" would be a second source
+    of truth that a late receipt or a reversal could contradict. Not the same as
+    an empty plan: a declared settlement can zero the projection while the payee
+    has yet to confirm the money arrived. A book with no entries is settled.
+    """
+    return not declared and all(cents == 0 for cents in positions.values())
 
 
 def _northwest_corner(

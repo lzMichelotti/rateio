@@ -1,6 +1,16 @@
+from datetime import date
+
 import pytest
 
-from ledger.settlement_plan import Transfer, UnbalancedPositionsError, settlement_plan
+from ledger.settlement import DeclaredSettlement
+from ledger.settlement_plan import (
+    Transfer,
+    UnbalancedPositionsError,
+    book_settled,
+    settlement_plan,
+)
+
+LUIS_PAYS_LOTTI = DeclaredSettlement("A7", "luis", "lotti", 6000, date(2026, 12, 27))
 
 
 def test_everyone_at_zero_needs_no_transfer():
@@ -33,3 +43,20 @@ def test_the_order_positions_arrive_in_does_not_change_the_plan():
 def test_positions_that_do_not_sum_to_zero_are_refused():
     with pytest.raises(UnbalancedPositionsError):
         settlement_plan({"lotti": 100, "luis": -99})
+
+
+def test_all_positions_at_zero_and_nothing_declared_is_settled():
+    assert book_settled({"lotti": 0, "luis": 0}, [])
+
+
+def test_a_non_zero_position_is_not_settled():
+    assert not book_settled({"lotti": 6000, "luis": -6000}, [])
+
+
+def test_a_declared_settlement_keeps_the_book_open_even_at_zero():
+    # luis declared the whole debt, then the expense was reversed.
+    assert not book_settled({"lotti": 0, "luis": 0}, [LUIS_PAYS_LOTTI])
+
+
+def test_a_book_with_no_entries_is_settled():
+    assert book_settled({}, [])
