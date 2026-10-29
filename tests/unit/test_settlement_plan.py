@@ -45,6 +45,67 @@ def test_positions_that_do_not_sum_to_zero_are_refused():
         settlement_plan({"lotti": 100, "luis": -99})
 
 
+def test_a_pair_closing_on_its_own_and_one_debtor_paying_two():
+    plan = settlement_plan(
+        {"lotti": 400, "luis": 300, "seph": 200, "vini": -500, "vitor": -400}
+    )
+
+    assert plan == (
+        Transfer("vini", "luis", 300),
+        Transfer("vini", "seph", 200),
+        Transfer("vitor", "lotti", 400),
+    )
+
+
+CRUMBS = {
+    "lotti": 67208,
+    "luis": 31545,
+    "seph": -19912,
+    "vini": -31792,
+    "vitor": -47049,
+}
+# What largest-creditor-against-largest-debtor produces for CRUMBS, checked by
+# hand: as short as the best plan, but with a R$ 2,47 transfer.
+GREEDY_FOR_CRUMBS = (
+    Transfer("seph", "lotti", 19912),
+    Transfer("vini", "lotti", 247),
+    Transfer("vini", "luis", 31545),
+    Transfer("vitor", "lotti", 47049),
+)
+
+
+def zeroes(positions, plan):
+    after = dict(positions)
+    for t in plan:
+        after[t.payer_id] += t.amount_cents
+        after[t.payee_id] -= t.amount_cents
+    return all(cents == 0 for cents in after.values())
+
+
+def test_among_equally_short_plans_the_largest_smallest_transfer_wins():
+    plan = settlement_plan(CRUMBS)
+
+    assert plan == (
+        Transfer("seph", "lotti", 19912),
+        Transfer("vini", "lotti", 31792),
+        Transfer("vitor", "lotti", 15504),
+        Transfer("vitor", "luis", 31545),
+    )
+    assert min(t.amount_cents for t in plan) == 15504
+
+    # Greedy's plan is valid and just as short: criterion 2 is what chose.
+    assert zeroes(CRUMBS, GREEDY_FOR_CRUMBS)
+    assert len(GREEDY_FOR_CRUMBS) == len(plan)
+    assert min(t.amount_cents for t in GREEDY_FOR_CRUMBS) == 247
+
+
+def test_everyone_at_zero_has_an_empty_plan_and_a_settled_book():
+    positions = dict.fromkeys(["lotti", "luis", "seph", "vini", "vitor"], 0)
+
+    assert settlement_plan(positions) == ()
+    assert book_settled(positions, [])
+
+
 def test_all_positions_at_zero_and_nothing_declared_is_settled():
     assert book_settled({"lotti": 0, "luis": 0}, [])
 
