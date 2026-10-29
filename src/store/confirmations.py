@@ -9,7 +9,7 @@ won: 1 means this call resolved it, 0 means someone else did first.
 """
 
 import random
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -37,6 +37,7 @@ from ledger.workflow import (
     transition_confirmation,
     transition_settlement,
 )
+from store.books import book_members
 from store.ledger import (
     EntryNotFoundError,
     RecordedEntry,
@@ -120,39 +121,46 @@ def propose_expense(
     total_cents: int,
     description: str,
     occurred_on: date,
-    participant_ids: Iterable[str],
     rng: random.Random,
 ) -> Proposal:
-    """A !gasto: open the author's own confirmation for an expense.
+    """A !gasto: open the author's own confirmation for an expense, split among
+    the book's members.
 
-    The participants are captured now, so the !ok confirms exactly what was
-    proposed. The expense is built once here only to validate it.
+    The members are captured now, so the !ok confirms exactly what was proposed
+    even if someone joins meanwhile. The expense is built once here only to
+    validate it.
     """
-    ids = sorted(participant_ids)
-    record_expense(
-        seq=1,
-        occurred_on=occurred_on,
-        payer_id=payer_id,
-        total_cents=total_cents,
-        description=description,
-        participant_ids=ids,
-    )
-    return propose(
-        conn,
-        book_id=book_id,
-        command_id=command_id,
-        kind=ConfirmationKind.EXPENSE_PROPOSAL,
-        created_by=payer_id,
-        confirmer=payer_id,
-        payload={
-            "payer_id": payer_id,
-            "total_cents": total_cents,
-            "description": description,
-            "occurred_on": occurred_on.isoformat(),
-            "participant_ids": ids,
-        },
-        rng=rng,
-    )
+    with conn.transaction():
+        _lock_book(conn, book_id)
+        # A redelivered command answers in silence before any validation.
+        existing = _existing_proposal(conn, command_id)
+        if existing is not None:
+            return existing
+        ids = book_members(conn, book_id)
+        record_expense(
+            seq=1,
+            occurred_on=occurred_on,
+            payer_id=payer_id,
+            total_cents=total_cents,
+            description=description,
+            participant_ids=ids,
+        )
+        return _insert_confirmation(
+            conn,
+            book_id,
+            command_id,
+            ConfirmationKind.EXPENSE_PROPOSAL,
+            created_by=payer_id,
+            confirmer=payer_id,
+            payload={
+                "payer_id": payer_id,
+                "total_cents": total_cents,
+                "description": description,
+                "occurred_on": occurred_on.isoformat(),
+                "participant_ids": ids,
+            },
+            rng=rng,
+        )
 
 
 def propose_reversal(

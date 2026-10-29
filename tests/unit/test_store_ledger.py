@@ -62,7 +62,6 @@ def test_the_same_command_twice_produces_one_entry(conn, book, make_command):
             total_cents=30000,
             description="fuel",
             occurred_on=date(2026, 12, 26),
-            participant_ids=FIVE,
             rng=random.Random(0),
         )
         return resolve(

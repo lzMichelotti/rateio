@@ -61,16 +61,23 @@ def conn(database_url: str):
 
 @pytest.fixture
 def make_book(conn):
-    """Factory: each call creates a fresh, empty book and returns its id."""
+    """Factory: each call creates a fresh book with no entries and returns its id.
+    Its members are the five seeded participants unless others are given."""
 
-    def make() -> UUID:
-        return conn.execute(
+    def make(members: list[str] = FIVE) -> UUID:
+        book_id = conn.execute(
             """
             INSERT INTO book (name, starts_on, ends_on)
             VALUES ('Example trip', '2026-12-25', '2027-01-05')
             RETURNING id
             """
         ).fetchone()[0]
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO book_member (book_id, participant_id) VALUES (%s, %s)",
+                [(book_id, pid) for pid in members],
+            )
+        return book_id
 
     return make
 
@@ -130,7 +137,6 @@ def spend(conn, book, make_command):
         *,
         description: str = "fuel",
         occurred_on: date = date(2026, 12, 26),
-        participant_ids: list[str] = FIVE,
         book_id: UUID | None = None,
     ):
         book_id = book_id or book
@@ -142,7 +148,6 @@ def spend(conn, book, make_command):
             total_cents=total_cents,
             description=description,
             occurred_on=occurred_on,
-            participant_ids=participant_ids,
             rng=random.Random(0),
         )
         return resolve(

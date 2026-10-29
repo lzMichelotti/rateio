@@ -117,7 +117,6 @@ def test_confirming_the_same_confirmation_n_times_creates_one_entry(
                 total_cents=12345,
                 description="expense",
                 occurred_on=DAY,
-                participant_ids=FIVE,
                 rng=random.Random(0),
             )
             confirmer = "vini"
@@ -182,7 +181,6 @@ def test_every_entry_has_one_confirmation_and_every_confirmed_one_one_entry(
                     total_cents=total_cents,
                     description="expense",
                     occurred_on=DAY,
-                    participant_ids=FIVE,
                     rng=random.Random(0),
                 )
                 if outcome != "leave":
