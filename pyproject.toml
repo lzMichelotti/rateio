@@ -13,7 +13,7 @@ requires = ["uv_build>=0.12.24,<0.13"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = ["ledger", "store", "channel", "interpreter", "jobs", "handlers"]
+module-name = ["ledger", "store", "channel", "core", "interpreter", "jobs", "handlers"]
 
 [tool.mypy]
 strict = true

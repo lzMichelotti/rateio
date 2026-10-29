@@ -102,6 +102,10 @@ class Resolution:
     confirmation_id: UUID
     status: ConfirmationStatus
     changed: bool  # False: the same action repeated, nothing happened
+    # What was resolved, as proposed, so the reply can describe it without a
+    # second lookup by code that could land on a recycled one.
+    kind: ConfirmationKind
+    payload: Mapping[str, Any]
     entry: RecordedEntry | None = None
     breaks: tuple[Break, ...] = ()
 
@@ -335,7 +339,13 @@ def resolve(
             )
 
         if not transition.changed:
-            return Resolution(confirmation_id, transition.status, changed=False)
+            return Resolution(
+                confirmation_id,
+                transition.status,
+                changed=False,
+                kind=kind,
+                payload=payload,
+            )
 
         entry = None
         breaks: tuple[Break, ...] = ()
@@ -392,7 +402,9 @@ def resolve(
                     )
                 )
 
-        return Resolution(confirmation_id, transition.status, True, entry, breaks)
+        return Resolution(
+            confirmation_id, transition.status, True, kind, payload, entry, breaks
+        )
 
 
 def declared_settlements(

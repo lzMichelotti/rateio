@@ -255,6 +255,14 @@ def help_text() -> str:
     return HELP
 
 
+def unknown_sender() -> str:
+    return "Não sei quem é você. Peça para alguém do grupo te cadastrar."
+
+
+def not_a_member() -> str:
+    return "Você não faz parte desta viagem."
+
+
 # -- what went wrong -------------------------------------------------------------
 
 _EXAMPLES = {
