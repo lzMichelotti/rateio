@@ -57,6 +57,11 @@ def database_url() -> str:
 def conn(database_url: str):
     """A connection whose changes are rolled back after each test."""
     with psycopg.connect(database_url) as conn:
+        # Open the transaction now. On an idle connection, the first
+        # conn.transaction() a test reaches would be a real transaction and
+        # commit; inside an open one it is only a savepoint, and the rollback
+        # below undoes everything.
+        conn.execute("SELECT 1")
         yield conn
         conn.rollback()
 
