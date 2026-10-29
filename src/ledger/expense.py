@@ -4,7 +4,16 @@ from collections.abc import Iterable
 from datetime import date
 
 from ledger.model import Entry, EntryKind, Posting, Role
+from ledger.refusal import NotPositiveAmountError, Refusal, RefusalReason
 from ledger.split import split_evenly
+
+
+class PayerNotMemberError(Refusal):
+    reason = RefusalReason.PAYER_NOT_MEMBER
+
+    def __init__(self, payer_id: str) -> None:
+        self.payer_id = payer_id
+        super().__init__(f"{payer_id} is not among the participants")
 
 
 def record_expense(
@@ -24,8 +33,10 @@ def record_expense(
     leg moves no money and is refused by the schema.
     """
     ids = list(participant_ids)
+    if total_cents <= 0:
+        raise NotPositiveAmountError(total_cents)
     if payer_id not in ids:
-        raise ValueError(f"payer {payer_id!r} is not among the participants")
+        raise PayerNotMemberError(payer_id)
 
     split = split_evenly(total_cents, ids, seq)
     shares = tuple(

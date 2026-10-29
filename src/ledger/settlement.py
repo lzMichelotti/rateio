@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from ledger.model import Entry, EntryKind, Posting, Role
+from ledger.refusal import NotPositiveAmountError, Refusal, RefusalReason
 
 
 @dataclass(frozen=True)
@@ -27,18 +28,27 @@ class DeclaredSettlement:
     declared_on: date
 
 
-class DeclarationRefused(ValueError):
+class DeclarationRefused(Refusal):
     """A settlement declaration the ledger will not open."""
 
 
+class SelfPaymentError(DeclarationRefused):
+    reason = RefusalReason.SELF_PAYMENT
+
+    def __init__(self, participant_id: str) -> None:
+        self.participant_id = participant_id
+        super().__init__(f"{participant_id} declared a payment to themselves")
+
+
 class ExceedsDebtError(DeclarationRefused):
+    reason = RefusalReason.EXCEEDS_DEBT
+
     def __init__(self, payer_id: str, amount_cents: int, debt_cents: int) -> None:
         self.payer_id = payer_id
         self.amount_cents = amount_cents
         self.debt_cents = debt_cents
         super().__init__(
-            f"{payer_id} declared {amount_cents} cents but owes {debt_cents}; "
-            "check the amount"
+            f"{payer_id} declared {amount_cents} cents but owes {debt_cents}"
         )
 
 
@@ -56,9 +66,9 @@ def validate_declaration(
     have moved, and that is the overpayment break's concern, not this one's.
     """
     if amount_cents <= 0:
-        raise DeclarationRefused(f"a settlement must be positive, got {amount_cents}")
+        raise NotPositiveAmountError(amount_cents)
     if payer_id == payee_id:
-        raise DeclarationRefused(f"{payer_id} cannot pay themselves")
+        raise SelfPaymentError(payer_id)
     debt_cents = max(0, -positions.get(payer_id, 0))
     if amount_cents > debt_cents:
         raise ExceedsDebtError(payer_id, amount_cents, debt_cents)

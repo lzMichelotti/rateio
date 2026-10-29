@@ -11,18 +11,19 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from ledger.model import Entry, EntryKind, Posting, Role
+from ledger.refusal import Refusal, RefusalReason
 
 
-class EntryNotFoundError(LookupError):
+class EntryNotFoundError(Refusal, LookupError):
     """No entry with that seq in this book. Entries of other books are never
     found, which is how a reversal across books is refused."""
+
+    reason = RefusalReason.ENTRY_NOT_FOUND
 
     def __init__(self, book_id: UUID, seq: int) -> None:
         self.book_id = book_id
         self.seq = seq
-        super().__init__(
-            f"there is no L{seq} in this book; check the entry number in the statement"
-        )
+        super().__init__(f"no L{seq} in book {book_id}")
 
 
 @dataclass(frozen=True)

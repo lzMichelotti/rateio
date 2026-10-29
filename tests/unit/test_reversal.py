@@ -5,6 +5,7 @@ import pytest
 from ledger.expense import record_expense
 from ledger.model import Entry, EntryKind, Posting, Role
 from ledger.positions import positions
+from ledger.refusal import RefusalReason
 from ledger.reversal import AlreadyReversedError, ReversalOfReversalError, reverse
 
 FIVE = ["lotti", "luis", "seph", "vini", "vitor"]
@@ -64,7 +65,7 @@ def test_an_entry_already_reversed_cannot_be_reversed_again():
         reverse(ORIGINAL, seq=3, author_id="seph", book_entries=[ORIGINAL, REVERSAL])
 
     assert (refused.value.original_seq, refused.value.reversal_seq) == (1, 2)
-    assert "already reversed by L2" in str(refused.value)
+    assert refused.value.reason is RefusalReason.ALREADY_REVERSED
 
 
 def test_a_reversal_cannot_be_reversed():
@@ -72,7 +73,7 @@ def test_a_reversal_cannot_be_reversed():
         reverse(REVERSAL, seq=3, author_id="seph", book_entries=[ORIGINAL, REVERSAL])
 
     assert (refused.value.seq, refused.value.reverses_seq) == (2, 1)
-    assert "record it again as a new expense" in str(refused.value)
+    assert refused.value.reason is RefusalReason.REVERSAL_OF_REVERSAL
 
 
 def test_a_reversal_without_a_link_cannot_exist():

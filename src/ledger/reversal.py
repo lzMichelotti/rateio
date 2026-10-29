@@ -3,31 +3,30 @@
 from collections.abc import Iterable
 
 from ledger.model import Entry, EntryKind, Posting
+from ledger.refusal import Refusal, RefusalReason
 
 
-class ReversalRefused(ValueError):
+class ReversalRefused(Refusal):
     """A reversal the ledger will not record. Subclasses carry the entry numbers
     so the channel layer can phrase the refusal for the group."""
 
 
 class AlreadyReversedError(ReversalRefused):
+    reason = RefusalReason.ALREADY_REVERSED
+
     def __init__(self, original_seq: int, reversal_seq: int) -> None:
         self.original_seq = original_seq
         self.reversal_seq = reversal_seq
-        super().__init__(
-            f"L{original_seq} was already reversed by L{reversal_seq}; "
-            "to correct it further, record a new expense with the right amount"
-        )
+        super().__init__(f"L{original_seq} was already reversed by L{reversal_seq}")
 
 
 class ReversalOfReversalError(ReversalRefused):
+    reason = RefusalReason.REVERSAL_OF_REVERSAL
+
     def __init__(self, seq: int, reverses_seq: int) -> None:
         self.seq = seq
         self.reverses_seq = reverses_seq
-        super().__init__(
-            f"L{seq} is itself the reversal of L{reverses_seq} and cannot be "
-            f"reversed; to restore L{reverses_seq}, record it again as a new expense"
-        )
+        super().__init__(f"L{seq} is the reversal of L{reverses_seq}")
 
 
 def reverse(

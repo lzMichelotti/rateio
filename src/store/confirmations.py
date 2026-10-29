@@ -23,6 +23,7 @@ from ledger.breaks import Break, overpayment_breaks
 from ledger.expense import record_expense
 from ledger.model import Entry
 from ledger.positions import positions
+from ledger.refusal import Refusal, RefusalReason
 from ledger.reversal import reverse
 from ledger.settlement import (
     DeclaredSettlement,
@@ -57,14 +58,22 @@ RECENTLY_RESOLVED = "24 hours"
 MAX_CODE_ATTEMPTS = 5
 
 
-class NoFreeCodeError(RuntimeError):
-    """Every code is open or recently resolved in this book."""
+class NoFreeCodeError(Refusal):
+    """Every code is open or recently resolved in this book: too much is pending."""
+
+    reason = RefusalReason.NO_FREE_CODE
+
+    def __init__(self, book_id: UUID) -> None:
+        self.book_id = book_id
+        super().__init__(f"no free confirmation code in book {book_id}")
 
 
-class ConfirmationNotFoundError(LookupError):
+class ConfirmationNotFoundError(Refusal, LookupError):
+    reason = RefusalReason.CONFIRMATION_NOT_FOUND
+
     def __init__(self, code: str) -> None:
         self.code = code
-        super().__init__(f"there is no confirmation {code} in this book")
+        super().__init__(f"no confirmation {code} in this book")
 
 
 class ResolvedConcurrentlyError(RuntimeError):
@@ -412,7 +421,7 @@ def pick_code(conn: psycopg.Connection, book_id: UUID, rng: random.Random) -> st
     }
     free = [code for code in ALL_CODES if code not in taken]
     if not free:
-        raise NoFreeCodeError(f"no free confirmation code in book {book_id}")
+        raise NoFreeCodeError(book_id)
     return rng.choice(free)
 
 
@@ -470,7 +479,7 @@ def _insert_confirmation(
             ).fetchone()
             return Proposal(existing[0], existing[1], created=False)
         return Proposal(row[0], code, created=True)
-    raise NoFreeCodeError(f"no free code after {MAX_CODE_ATTEMPTS} attempts")
+    raise NoFreeCodeError(book_id)
 
 
 def _builder(

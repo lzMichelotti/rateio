@@ -13,6 +13,8 @@ or cancelled its confirmation is `discarded`; the settlement row records which.
 from dataclasses import dataclass
 from enum import StrEnum
 
+from ledger.refusal import Refusal, RefusalReason
+
 
 class ConfirmationKind(StrEnum):
     EXPENSE_PROPOSAL = "expense_proposal"
@@ -40,38 +42,42 @@ class Action(StrEnum):
     EXPIRE = "expire"  # the nightly job, never a person
 
 
-class WorkflowRefused(ValueError):
+class WorkflowRefused(Refusal):
     """A transition the workflow will not make. Subclasses carry the data the
     channel layer needs to explain it to the group."""
 
 
 class NotTheConfirmerError(WorkflowRefused):
+    reason = RefusalReason.NOT_THE_CONFIRMER
+
     def __init__(self, actor: str, confirmer: str) -> None:
         self.actor = actor
         self.confirmer = confirmer
-        super().__init__(f"only {confirmer} can confirm this, not {actor}")
+        super().__init__(f"{actor} tried to confirm; the confirmer is {confirmer}")
 
 
 class NotAPartyError(WorkflowRefused):
+    reason = RefusalReason.NOT_A_PARTY
+
     def __init__(self, actor: str, allowed: tuple[str, ...]) -> None:
         self.actor = actor
         self.allowed = allowed
-        super().__init__(
-            f"{actor} cannot decline this; only {' or '.join(allowed)} can"
-        )
+        super().__init__(f"{actor} tried to decline; allowed: {', '.join(allowed)}")
 
 
 class AlreadyResolvedError(WorkflowRefused):
+    reason = RefusalReason.ALREADY_RESOLVED
+
     def __init__(self, status: str) -> None:
         self.status = status
-        super().__init__(f"this was already {status} and cannot change any more")
+        super().__init__(f"already {status}")
 
 
 class SettlementNeverExpiresError(WorkflowRefused):
+    reason = RefusalReason.SETTLEMENT_NEVER_EXPIRES
+
     def __init__(self) -> None:
-        super().__init__(
-            "a settlement declaration never expires: it may describe a real payment"
-        )
+        super().__init__("settlement declarations never expire")
 
 
 @dataclass(frozen=True)

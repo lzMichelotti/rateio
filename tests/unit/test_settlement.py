@@ -5,8 +5,8 @@ import pytest
 
 from ledger.model import EntryKind, Posting, Role
 from ledger.positions import positions
+from ledger.refusal import Refusal, RefusalReason
 from ledger.settlement import (
-    DeclarationRefused,
     ExceedsDebtError,
     record_settlement,
     validate_declaration,
@@ -45,12 +45,20 @@ def test_someone_who_owes_nothing_cannot_declare_a_payment():
 
 
 @pytest.mark.parametrize(
-    ("amount_cents", "payer_id", "payee_id"),
-    [(0, "luis", "seph"), (-100, "luis", "seph"), (100, "luis", "luis")],
+    ("amount_cents", "payer_id", "payee_id", "reason"),
+    [
+        (0, "luis", "seph", RefusalReason.NOT_POSITIVE_AMOUNT),
+        (-100, "luis", "seph", RefusalReason.NOT_POSITIVE_AMOUNT),
+        (100, "luis", "luis", RefusalReason.SELF_PAYMENT),
+    ],
 )
-def test_nonsense_declarations_are_refused(amount_cents, payer_id, payee_id):
-    with pytest.raises(DeclarationRefused):
+def test_nonsense_declarations_are_refused_with_their_reason(
+    amount_cents, payer_id, payee_id, reason
+):
+    with pytest.raises(Refusal) as refused:
         declare(amount_cents, payer_id, payee_id)
+
+    assert refused.value.reason is reason
 
 
 def test_a_settlement_entry_moves_the_payer_up_and_the_payee_down():
