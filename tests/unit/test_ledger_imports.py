@@ -1,10 +1,14 @@
-"""src/ledger/ may import only the standard library and itself."""
+"""Import boundaries: src/ledger/ imports only the standard library and itself,
+and nothing in src/ imports the test helpers in tests/support/."""
 
 import ast
 import sys
 from pathlib import Path
 
-LEDGER_DIR = Path(__file__).resolve().parents[2] / "src" / "ledger"
+ROOT = Path(__file__).resolve().parents[2]
+SRC_DIR = ROOT / "src"
+LEDGER_DIR = SRC_DIR / "ledger"
+SUPPORT_DIR = ROOT / "tests" / "support"
 ALLOWED = set(sys.stdlib_module_names) | {"ledger"}
 
 
@@ -26,6 +30,18 @@ def test_ledger_imports_only_the_standard_library():
         if foreign:
             offenders[path.name] = sorted(foreign)
 
+    assert offenders == {}
+
+
+def test_nothing_in_src_imports_the_test_support_modules():
+    support = {path.stem for path in SUPPORT_DIR.glob("*.py")}
+    offenders = {}
+    for path in sorted(SRC_DIR.rglob("*.py")):
+        imported = imported_top_level_modules(path.read_text()) & support
+        if imported:
+            offenders[str(path.relative_to(SRC_DIR))] = sorted(imported)
+
+    assert "oracle" in support
     assert offenders == {}
 
 

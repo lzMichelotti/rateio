@@ -24,6 +24,9 @@ python_version = "3.12"
 minversion = "9.0"
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib", "-ra"]
+# importlib mode makes helpers under tests/ unimportable; only tests/support is
+# put on the path, and it must never be imported from src/.
+pythonpath = ["tests/support"]
 
 [dependency-groups]
 dev = [
