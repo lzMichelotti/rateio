@@ -16,6 +16,7 @@ already open transaction psycopg only manages a savepoint.
 """
 
 import random
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from uuid import UUID
@@ -63,17 +64,24 @@ def business_date(at: datetime) -> date:
     return at.astimezone(BUSINESS_TZ).date()
 
 
-def process_pending(conn: psycopg.Connection, *, rng: random.Random) -> int:
+def process_pending(
+    conn: psycopg.Connection,
+    *,
+    rng: random.Random,
+    should_stop: Callable[[], bool] = lambda: False,
+) -> int:
     """Process unprocessed messages oldest first, one transaction each, until
-    none is left. Returns how many were processed. Stops at the first bug."""
+    none is left or should_stop says so, checked between messages. Returns how
+    many were processed. Stops at the first bug."""
     count = 0
-    while True:
+    while not should_stop():
         with conn.transaction():
             inbound_id = inbox.next_pending(conn)
             if inbound_id is None:
                 return count
             _process(conn, inbound_id, rng)
         count += 1
+    return count
 
 
 def process(conn: psycopg.Connection, inbound_id: UUID, *, rng: random.Random) -> bool:

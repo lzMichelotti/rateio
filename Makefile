@@ -5,7 +5,7 @@
 -include .env
 export
 
-.PHONY: up down migrate admin chat bridge bridge-groups test fmt lint typecheck bridge-install bridge-check check
+.PHONY: up down migrate admin chat worker bridge bridge-groups test fmt lint typecheck bridge-install bridge-check check
 
 up:  ## start Postgres and wait until it is healthy
 	docker compose up -d --wait
@@ -34,6 +34,9 @@ lint:  ## check formatting and lint rules
 
 typecheck:  ## strict type check of the pure modules (src/ledger, src/channel)
 	uv run mypy
+
+worker:  ## process the inbox continuously (pairs with make bridge)
+	uv run python -m core.worker
 
 bridge: bridge-node  ## run the WhatsApp bridge (pairs on first run)
 	cd bridge && node src/main.ts
