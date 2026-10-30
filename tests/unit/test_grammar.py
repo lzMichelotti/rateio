@@ -135,11 +135,26 @@ def test_a_name_that_matches_two_members_is_never_guessed():
     assert read("!pix @bia 40", members).reason is ParseReason.AMBIGUOUS_PERSON
 
 
-def test_a_settlement_needs_a_person_then_an_amount():
-    assert read("!pix 40 @ze").reason is ParseReason.MISSING_PERSON
+@pytest.mark.parametrize(
+    "text", ["!pix @ze 40", "!pix 40 @ze", "!pix ze 40", "!pix 40 ze", "!pix Zé 40"]
+)
+def test_a_settlement_reads_the_person_and_the_amount_in_either_order(text):
+    # How people typed it on a real group: amount first, or the name without @.
+    assert read(text) == DeclareSettlement("ze", 4000)
+
+
+def test_a_settlement_needs_a_person_and_an_amount():
+    assert read("!pix").reason is ParseReason.MISSING_PERSON
+    assert read("!pix 40").reason is ParseReason.MISSING_PERSON
+    assert read("!pix 40 50").reason is ParseReason.MISSING_PERSON
     assert read("!pix @ze").reason is ParseReason.MISSING_AMOUNT
+    assert read("!pix ze").reason is ParseReason.MISSING_AMOUNT
     assert read("!pix @ ze").reason is ParseReason.UNKNOWN_PERSON
+    assert read("!pix @dudu 40") == ParseError(
+        ParseReason.UNKNOWN_PERSON, "!pix", "@dudu"
+    )
     assert read("!pix @ze 40 50").reason is ParseReason.UNEXPECTED_ARGUMENTS
+    assert read("!pix @ze quarenta").reason is ParseReason.INVALID_AMOUNT
 
 
 # -- codes, entries, statement ---------------------------------------------------

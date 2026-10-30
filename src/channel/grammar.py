@@ -161,26 +161,55 @@ def _expense(
 def _settlement(
     verb: str, args: list[str], members: Sequence[Member], today: date
 ) -> Command | ParseError:
-    if not args or not args[0].startswith("@"):
+    """`!pix @joao 40`, and as people actually type it in a group: the amount
+    first (`!pix 40 @joao`) or the name without the @ (`!pix joao 40`). The two
+    never mix up: the person is the token with the @, or else the one that is
+    not an amount."""
+    if not args:
         return ParseError(ParseReason.MISSING_PERSON, verb)
-    if len(args) < 2:
-        return ParseError(ParseReason.MISSING_AMOUNT, verb)
     if len(args) > 2:
         return ParseError(ParseReason.UNEXPECTED_ARGUMENTS, verb, " ".join(args[2:]))
-    wanted = fold(args[0][1:])
+    if len(args) == 1:
+        alone = args[0]
+        reason = (
+            ParseReason.MISSING_PERSON
+            if not alone.startswith("@") and _is_amount(alone)
+            else ParseReason.MISSING_AMOUNT
+        )
+        return ParseError(reason, verb)
+
+    person, value = _person_and_amount(args[0], args[1])
+    if person is None:
+        return ParseError(ParseReason.MISSING_PERSON, verb)
+    wanted = fold(person.removeprefix("@"))
     matches = {
         m.participant_id
         for m in members
         if wanted and wanted in (fold(m.participant_id), fold(m.display_name))
     }
     if not matches:
-        return ParseError(ParseReason.UNKNOWN_PERSON, verb, args[0])
+        return ParseError(ParseReason.UNKNOWN_PERSON, verb, person)
     if len(matches) > 1:
-        return ParseError(ParseReason.AMBIGUOUS_PERSON, verb, args[0])
-    amount = parse_amount(args[1])
+        return ParseError(ParseReason.AMBIGUOUS_PERSON, verb, person)
+    amount = parse_amount(value)
     if isinstance(amount, ParseReason):
-        return ParseError(amount, verb, args[1])
+        return ParseError(amount, verb, value)
     return DeclareSettlement(matches.pop(), amount)
+
+
+def _is_amount(token: str) -> bool:
+    return not isinstance(parse_amount(token), ParseReason)
+
+
+def _person_and_amount(first: str, second: str) -> tuple[str | None, str]:
+    """Which of two tokens names the person. None when both are amounts."""
+    if first.startswith("@") != second.startswith("@"):
+        return (first, second) if first.startswith("@") else (second, first)
+    if _is_amount(first) != _is_amount(second):
+        return (second, first) if _is_amount(first) else (first, second)
+    if _is_amount(first):
+        return None, second  # two amounts, nobody to pay
+    return first, second  # neither reads as an amount: the usual order
 
 
 def _code(
