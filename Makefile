@@ -5,7 +5,7 @@
 -include .env
 export
 
-.PHONY: up down migrate admin chat worker bridge bridge-groups test fmt lint typecheck bridge-install bridge-check check
+.PHONY: up down migrate admin chat worker bridge bridge-groups test fmt lint typecheck bridge-install bridge-check check plan
 
 up:  ## start Postgres and wait until it is healthy
 	docker compose up -d --wait
@@ -55,3 +55,8 @@ bridge-node:  # the Node on PATH must be the one pinned in bridge/.nvmrc
 	@node -e 'const w = require("fs").readFileSync("bridge/.nvmrc", "utf8").trim(); if (process.versions.node !== w) { console.error(`bridge needs Node $${w}, found $${process.versions.node}: run nvm use in bridge/`); process.exit(1); }'
 
 check: lint typecheck test bridge-check  ## everything, in order; stops at the first failure
+
+# There is deliberately no apply target: applying takes typing the whole
+# terraform command, after reading this plan.
+plan:  ## show what terraform would change in prod (run terraform init in infra/prod once)
+	terraform -chdir=infra/prod plan -input=false
