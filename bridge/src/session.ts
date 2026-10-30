@@ -12,6 +12,8 @@ import {
   makeCacheableSignalKeyStore,
   makeWASocket,
   useMultiFileAuthState,
+  type proto,
+  type WAMessageKey,
   type WASocket,
 } from "@whiskeysockets/baileys";
 import pino from "pino";
@@ -27,6 +29,10 @@ export interface Hooks {
   attach?: (sock: WASocket) => void;
   // Called on every successful (re)connection.
   onOpen?: (sock: WASocket) => void | Promise<void>;
+  // Called whenever the connection closes, whatever happens next.
+  onClose?: () => void;
+  // The content of a message the bot sent, when a recipient asks for a resend.
+  getMessage?: (key: WAMessageKey) => Promise<proto.IMessage | undefined>;
 }
 
 // Runs until the session is ended from the phone (or taken over, or refused).
@@ -49,6 +55,9 @@ export async function runSession(config: Config, hooks: Hooks = {}): Promise<voi
         syncFullHistory: false,
         // Online all the time would silence the bot phone's own notifications.
         markOnlineOnConnect: false,
+        // Without it, retry delivery silently fails when a recipient could not
+        // decrypt a message and asks for it again.
+        ...(hooks.getMessage ? { getMessage: hooks.getMessage } : {}),
       });
       sock.ev.on("creds.update", saveCreds);
       hooks.attach?.(sock);
@@ -82,6 +91,7 @@ export async function runSession(config: Config, hooks: Hooks = {}): Promise<voi
         }
 
         if (connection === "close") {
+          hooks.onClose?.();
           const statusCode = (lastDisconnect?.error as { output?: { statusCode?: number } })
             ?.output?.statusCode;
           const next = afterClose(statusCode, attempt);

@@ -1,5 +1,5 @@
 // make bridge: keep the WhatsApp session alive, land the messages addressed to
-// the bot in inbound_message. Sending is wired in later in the stage.
+// the bot in inbound_message, send the outbox while connected.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,7 @@ import type { WASocket } from "@whiskeysockets/baileys";
 import { loadConfig } from "./config.ts";
 import { Db } from "./db.ts";
 import { toInbound } from "./inbound.ts";
+import { resendLookup, runOutbox } from "./outbox.ts";
 import { holdSession, runningPid } from "./pidfile.ts";
 import { runSession } from "./session.ts";
 
@@ -46,5 +47,22 @@ function listen(sock: WASocket): void {
   });
 }
 
-await runSession(config, { attach: listen });
+// One sending loop per open connection; a closed connection stops it, so no
+// attempt is burnt while WhatsApp is unreachable.
+let sending: AbortController | undefined;
+
+function startSending(sock: WASocket): void {
+  sending?.abort();
+  sending = new AbortController();
+  const send = async (chat: string, body: string) =>
+    (await sock.sendMessage(chat, { text: body }))?.key.id ?? undefined;
+  void runOutbox(db, send, sending.signal, (line) => console.log(line));
+}
+
+await runSession(config, {
+  attach: listen,
+  onOpen: startSending,
+  onClose: () => sending?.abort(),
+  getMessage: resendLookup((id) => db.bodyOf(id)),
+});
 await db.close();
