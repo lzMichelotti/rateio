@@ -5,7 +5,7 @@ import pytest
 
 from ledger.positions import positions
 from ledger.workflow import Action
-from store.books import book_members
+from store.books import book_members, link_conversation
 from store.confirmations import propose_expense, resolve
 from store.ledger import book_postings
 
@@ -75,3 +75,11 @@ def test_someone_joining_before_the_ok_is_not_in_that_expense(
     )
 
     assert positions(book_postings(conn, book_id)) == {"lotti": 5000, "luis": -5000}
+
+
+def test_a_conversation_records_when_it_was_registered(conn, book):
+    link_conversation(conn, channel="cli", external_id="trip", book_id=book)
+
+    assert conn.execute(
+        "SELECT created_at = now() FROM conversation WHERE external_id = 'trip'"
+    ).fetchone() == (True,)
