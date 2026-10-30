@@ -20,7 +20,8 @@ if (runningPid(config.authDir) !== undefined) {
 }
 holdSession(config.authDir);
 
-await runSession(config, async (sock) => {
+await runSession(config, {
+  onOpen: async (sock) => {
   try {
     console.log(`the bot: ${sock.user?.lid ?? "(lid unknown)"}  phone ${maskPhone(sock.user?.id)}`);
     if (groupId === undefined) {
@@ -28,7 +29,8 @@ await runSession(config, async (sock) => {
     } else {
       console.log(formatParticipants(await sock.groupMetadata(groupId)));
     }
-  } finally {
-    process.exit(0);
-  }
+    } finally {
+      process.exit(0);
+    }
+  },
 });

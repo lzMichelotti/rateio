@@ -22,11 +22,15 @@ import { afterClose } from "./reconnect.ts";
 
 const logger = pino({ level: "warn" });
 
-export type OnOpen = (sock: WASocket) => void | Promise<void>;
+export interface Hooks {
+  // Called for every new socket, before it connects: the place to listen to events.
+  attach?: (sock: WASocket) => void;
+  // Called on every successful (re)connection.
+  onOpen?: (sock: WASocket) => void | Promise<void>;
+}
 
 // Runs until the session is ended from the phone (or taken over, or refused).
-// onOpen is called on every successful (re)connection.
-export async function runSession(config: Config, onOpen: OnOpen = () => {}): Promise<void> {
+export async function runSession(config: Config, hooks: Hooks = {}): Promise<void> {
   // Created if missing; saved on every creds.update, or the next connection
   // fails to decrypt.
   const { state, saveCreds } = await useMultiFileAuthState(config.authDir);
@@ -47,6 +51,7 @@ export async function runSession(config: Config, onOpen: OnOpen = () => {}): Pro
         markOnlineOnConnect: false,
       });
       sock.ev.on("creds.update", saveCreds);
+      hooks.attach?.(sock);
 
       let pairingRequested = false;
       sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
@@ -73,7 +78,7 @@ export async function runSession(config: Config, onOpen: OnOpen = () => {}): Pro
         if (connection === "open") {
           attempt = 0;
           console.log("connected");
-          void onOpen(sock);
+          void hooks.onOpen?.(sock);
         }
 
         if (connection === "close") {

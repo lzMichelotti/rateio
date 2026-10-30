@@ -1,0 +1,18 @@
+{
+  "key": {
+    "remoteJid": "120000000000000001@g.us",
+    "fromMe": false,
+    "id": "3EB0000000000000000002",
+    "participant": "100000000000001@lid",
+    "participantAlt": "5500000000001@s.whatsapp.net",
+    "addressingMode": "lid"
+  },
+  "messageTimestamp": 1793000060,
+  "pushName": "Lotti",
+  "message": {
+    "extendedTextMessage": {
+      "text": "@100000000000009 quanto eu devo?",
+      "contextInfo": { "mentionedJid": ["100000000000009@lid"] }
+    }
+  }
+}
