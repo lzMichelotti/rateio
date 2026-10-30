@@ -74,12 +74,12 @@ def test_a_lost_database_is_waited_for_not_a_reason_to_stop(conn, queue):
         rng=random.Random(0),
         should_stop=lambda: len(naps) >= 2,
         sleep=naps.append,
-        log=logs.append,
+        report=logs.append,
     )
 
     assert processed(conn, ids) == [True]
     assert naps == [1.0, worker.POLL_SECONDS]
-    assert logs == ["database unavailable (OperationalError); retrying in 1s"]
+    assert logs == ["worker.db_unavailable error=OperationalError retry_in=1s"]
 
 
 def test_a_bug_stops_the_worker(conn, queue, monkeypatch):

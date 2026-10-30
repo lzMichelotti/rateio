@@ -117,16 +117,19 @@ def record_command(
 
 def enqueue_reply(
     conn: psycopg.Connection, *, conversation_id: UUID, inbound_id: UUID, body: str
-) -> None:
-    """One reply per message, ever: the key is reply:<inbound_message_id>."""
-    conn.execute(
+) -> UUID | None:
+    """One reply per message, ever: the key is reply:<inbound_message_id>.
+    Returns the new outbound_message id, or None if the reply existed."""
+    row = conn.execute(
         """
         INSERT INTO outbound_message (conversation_id, body, dedupe_key)
         VALUES (%s, %s, %s)
         ON CONFLICT (dedupe_key) DO NOTHING
+        RETURNING id
         """,
         (conversation_id, body, f"reply:{inbound_id}"),
-    )
+    ).fetchone()
+    return None if row is None else row[0]
 
 
 def mark_processed(conn: psycopg.Connection, inbound_id: UUID) -> None:

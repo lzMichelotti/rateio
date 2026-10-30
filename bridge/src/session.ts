@@ -20,6 +20,7 @@ import pino from "pino";
 import qrcode from "qrcode-terminal";
 
 import type { Config } from "./config.ts";
+import { log } from "./log.ts";
 import { afterClose } from "./reconnect.ts";
 
 const logger = pino({ level: "warn" });
@@ -86,7 +87,7 @@ export async function runSession(config: Config, hooks: Hooks = {}): Promise<voi
 
         if (connection === "open") {
           attempt = 0;
-          console.log("connected");
+          log("session.connected");
           void hooks.onOpen?.(sock);
         }
 
@@ -102,7 +103,7 @@ export async function runSession(config: Config, hooks: Hooks = {}): Promise<voi
             return;
           }
           attempt += 1;
-          console.log(`connection closed (${statusCode ?? "no code"}); retrying in ${next.delayMs} ms`);
+          log("session.closed", { code: statusCode, retry_in_ms: next.delayMs });
           setTimeout(start, next.delayMs);
         }
       });

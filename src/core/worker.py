@@ -29,7 +29,7 @@ from collections.abc import Callable
 
 import psycopg
 
-from core import processor
+from core import log, processor
 
 POLL_SECONDS = 1.0
 MAX_BACKOFF_SECONDS = 30.0
@@ -41,7 +41,7 @@ def run(
     rng: random.Random,
     should_stop: Callable[[], bool],
     sleep: Callable[[float], None],
-    log: Callable[[str], None] = print,
+    report: Callable[[str], None] = log.LOGGER.info,
 ) -> None:
     """Process the inbox until should_stop. Raises on a bug."""
     backoff = 1.0
@@ -53,8 +53,8 @@ def run(
             processor.process_pending(conn, rng=rng, should_stop=should_stop)
             backoff = 1.0
         except psycopg.OperationalError as error:
-            log(
-                f"database unavailable ({type(error).__name__}); retrying in {backoff:.0f}s"
+            report(
+                f"worker.db_unavailable error={type(error).__name__} retry_in={backoff:.0f}s"
             )
             if conn is not None:
                 conn.close()
@@ -83,7 +83,8 @@ def main() -> int:
             time.sleep(0.1)
 
     url = os.environ["DATABASE_URL"]
-    print("worker running (Ctrl+C stops)")
+    log.configure("worker")
+    log.event("worker.started")
     try:
         # Autocommit: each message's transaction commits on its own.
         run(
@@ -99,7 +100,7 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    print("worker stopped")
+    log.event("worker.stopped")
     return 0
 
 

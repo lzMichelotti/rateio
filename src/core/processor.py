@@ -16,6 +16,7 @@ already open transaction psycopg only manages a savepoint.
 """
 
 import random
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -39,6 +40,7 @@ from channel.commands import (
 )
 from channel.grammar import Member, ParseError, parse
 from channel.inbound import sender_key, text_of
+from core import log
 from ledger.positions import position_summary, positions, projected_positions
 from ledger.refusal import Refusal
 from ledger.settlement_plan import book_settled, settlement_plan
@@ -75,11 +77,18 @@ def process_pending(
     many were processed. Stops at the first bug."""
     count = 0
     while not should_stop():
-        with conn.transaction():
-            inbound_id = inbox.next_pending(conn)
-            if inbound_id is None:
-                return count
-            _process(conn, inbound_id, rng)
+        trace: dict[str, object] = {}
+        started = time.monotonic()
+        try:
+            with conn.transaction():
+                inbound_id = inbox.next_pending(conn)
+                if inbound_id is None:
+                    return count
+                _process(conn, inbound_id, rng, trace)
+        except Exception as error:
+            _rolled_back(trace, error)
+            raise
+        _done(trace, started)
         count += 1
     return count
 
@@ -87,8 +96,30 @@ def process_pending(
 def process(conn: psycopg.Connection, inbound_id: UUID, *, rng: random.Random) -> bool:
     """Process one message in its own transaction. False if it was already
     processed: nothing is written twice."""
-    with conn.transaction():
-        return _process(conn, inbound_id, rng)
+    trace: dict[str, object] = {}
+    started = time.monotonic()
+    try:
+        with conn.transaction():
+            processed = _process(conn, inbound_id, rng, trace)
+    except Exception as error:
+        _rolled_back(trace, error)
+        raise
+    if processed:
+        _done(trace, started)
+    return processed
+
+
+# Logged only after the transaction has committed: a line saying "entry seq=3"
+# for a transaction that was then rolled back would record a fact that never
+# happened. While processing, what happens is gathered in a trace instead.
+def _done(trace: dict[str, object], started: float) -> None:
+    log.event("message.done", **trace, ms=round((time.monotonic() - started) * 1000))
+
+
+def _rolled_back(trace: dict[str, object], error: Exception) -> None:
+    log.event(
+        "message.rolled_back", inbound=trace.get("inbound"), error=type(error).__name__
+    )
 
 
 @dataclass(frozen=True)
@@ -100,36 +131,51 @@ class _Context:
     names: dict[str, str]
     today: date
     rng: random.Random
+    trace: dict[str, object]
 
 
-def _process(conn: psycopg.Connection, inbound_id: UUID, rng: random.Random) -> bool:
+def _process(
+    conn: psycopg.Connection,
+    inbound_id: UUID,
+    rng: random.Random,
+    trace: dict[str, object],
+) -> bool:
     message = inbox.lock_unprocessed(conn, inbound_id)
     if message is None:
         return False
+    trace["inbound"] = message.id
     conversation = books.conversation_book(
         conn, message.channel, message.conversation_external_id
     )
     if conversation is not None:
         conversation_id, book_id = conversation
-        body = _reply(conn, message, book_id, rng)
-        inbox.enqueue_reply(
+        body = _reply(conn, message, book_id, rng, trace)
+        trace["outbound"] = inbox.enqueue_reply(
             conn, conversation_id=conversation_id, inbound_id=message.id, body=body
         )
-    # An unknown chat has nowhere to be answered: processed, in silence.
+    else:
+        # An unknown chat has nowhere to be answered: processed, in silence.
+        trace["outcome"] = "unknown_chat"
     inbox.mark_processed(conn, message.id)
     return True
 
 
 def _reply(
-    conn: psycopg.Connection, message: inbox.Inbound, book_id: UUID, rng: random.Random
+    conn: psycopg.Connection,
+    message: inbox.Inbound,
+    book_id: UUID,
+    rng: random.Random,
+    trace: dict[str, object],
 ) -> str:
     author_id = books.participant_for(
         conn, message.channel, sender_key(message.channel, message.sender_external_id)
     )
     if author_id is None:
+        trace["outcome"] = "unknown_sender"
         return messages.unknown_sender()
     members = [Member(pid, name) for pid, name in books.member_names(conn, book_id)]
     if author_id not in {m.participant_id for m in members}:
+        trace["outcome"] = "not_a_member"
         return messages.not_a_member()
 
     today = business_date(message.received_at)
@@ -143,6 +189,7 @@ def _reply(
         today=today,
     )
     if isinstance(parsed, ParseError):
+        trace["parse_error"] = parsed.reason.value
         return messages.parse_error(parsed)
 
     ctx = _Context(
@@ -153,6 +200,7 @@ def _reply(
         {m.participant_id: m.display_name for m in members},
         today,
         rng,
+        trace,
     )
     command_id = inbox.record_command(
         conn,
@@ -162,9 +210,12 @@ def _reply(
         kind=parsed.kind.value,
         payload=parsed.payload(),
     )
+    trace["command"] = command_id
+    trace["kind"] = parsed.kind.value
     try:
         return _execute(conn, parsed, command_id, ctx)
     except Refusal as refused:
+        trace["refusal"] = refused.reason.value
         return messages.refusal(refused, names=ctx.names)
 
 
@@ -263,6 +314,8 @@ def _resolved(
     if not resolution.changed:
         return messages.unchanged(code, resolution.status)
     if resolution.entry is not None:
+        ctx.trace["entry"] = resolution.entry.entry_id
+        ctx.trace["seq"] = resolution.entry.seq
         return messages.entry_recorded(
             _line(conn, ctx.book_id, resolution.entry.seq),
             breaks=resolution.breaks,

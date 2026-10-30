@@ -10,6 +10,8 @@
 
 import { setTimeout as sleep } from "node:timers/promises";
 
+import { inboundOf, scrub, type Fields } from "./log.ts";
+
 export const MAX_ATTEMPTS = 5;
 // Not from any documentation (Baileys states no rate limit): a precaution
 // against looking like a bot flooding the network, which is what gets
@@ -22,6 +24,7 @@ export interface Pending {
   chat: string; // the conversation's external id (the group JID)
   body: string;
   attempts: number;
+  dedupeKey: string; // reply:<inbound id> for a reply: the correlation id
 }
 
 export interface OutboxStore {
@@ -36,27 +39,28 @@ export type Send = (chat: string, body: string) => Promise<string | undefined>;
 
 export type Round =
   | { kind: "idle" }
-  | { kind: "sent"; id: string }
-  | { kind: "retry"; id: string; attempts: number; error: string }
-  | { kind: "failed"; id: string; error: string };
+  | { kind: "sent"; id: string; inbound: string | undefined; attempts: number }
+  | { kind: "retry"; id: string; inbound: string | undefined; attempts: number; error: string }
+  | { kind: "failed"; id: string; inbound: string | undefined; error: string };
 
 export async function sendNext(store: OutboxStore, send: Send): Promise<Round> {
   const pending = await store.nextPending();
   if (pending === undefined) return { kind: "idle" };
+  const inbound = inboundOf(pending.dedupeKey);
+  const attempt = pending.attempts + 1; // read before marking: the row may change
   let channelMessageId: string | undefined;
   try {
     channelMessageId = await send(pending.chat, pending.body);
   } catch (error) {
-    const attempts = pending.attempts + 1;
-    const failed = attempts >= MAX_ATTEMPTS;
+    const failed = attempt >= MAX_ATTEMPTS;
     await store.markAttemptFailed(pending.id, failed);
-    const message = (error as Error).message;
+    const message = scrub((error as Error).message);
     return failed
-      ? { kind: "failed", id: pending.id, error: message }
-      : { kind: "retry", id: pending.id, attempts, error: message };
+      ? { kind: "failed", id: pending.id, inbound, error: message }
+      : { kind: "retry", id: pending.id, inbound, attempts: attempt, error: message };
   }
   await store.markSent(pending.id, channelMessageId);
-  return { kind: "sent", id: pending.id };
+  return { kind: "sent", id: pending.id, inbound, attempts: attempt };
 }
 
 // Runs rounds until signal aborts (the connection closed).
@@ -64,22 +68,29 @@ export async function runOutbox(
   store: OutboxStore,
   send: Send,
   signal: AbortSignal,
-  log: (line: string) => void,
+  log: (event: string, fields?: Fields) => void,
 ): Promise<void> {
   while (!signal.aborted) {
     let pause = PAUSE_MS;
     try {
       const round = await sendNext(store, send);
-      if (round.kind === "sent") log(`sent outbound ${round.id}`);
+      if (round.kind === "sent") {
+        log("outbound.sent", { outbound: round.id, inbound: round.inbound, attempt: round.attempts });
+      }
       if (round.kind === "retry") {
-        log(`send failed for outbound ${round.id} (attempt ${round.attempts}): ${round.error}`);
+        log("outbound.retry", {
+          outbound: round.id,
+          inbound: round.inbound,
+          attempt: round.attempts,
+          error: round.error,
+        });
         pause = RETRY_PAUSE_MS;
       }
       if (round.kind === "failed") {
-        log(`gave up on outbound ${round.id} after ${MAX_ATTEMPTS} attempts: ${round.error}`);
+        log("outbound.failed", { outbound: round.id, inbound: round.inbound, error: round.error });
       }
     } catch (error) {
-      log(`outbox unavailable: ${(error as Error).message}`);
+      log("outbox.unavailable", { error: (error as Error).name });
       pause = RETRY_PAUSE_MS;
     }
     try {

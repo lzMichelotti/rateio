@@ -9,6 +9,7 @@ import type { WASocket } from "@whiskeysockets/baileys";
 import { loadConfig } from "./config.ts";
 import { Db } from "./db.ts";
 import { toInbound } from "./inbound.ts";
+import { log } from "./log.ts";
 import { resendLookup, runOutbox } from "./outbox.ts";
 import { holdSession, runningPid } from "./pidfile.ts";
 import { runSession } from "./session.ts";
@@ -33,16 +34,17 @@ function listen(sock: WASocket): void {
         const result = toInbound(msg, { registered, botIds });
         if ("skip" in result) {
           // Unregistered chats are not even mentioned: nothing of them is kept.
-          if (result.skip !== "not_registered") console.log(`skipped (${result.skip}, ${type})`);
+          if (result.skip !== "not_registered") log("inbound.skipped", { reason: result.skip, type });
           continue;
         }
         const inboundId = await db.land(result);
-        console.log(inboundId ? `landed inbound ${inboundId} (${type})` : `duplicate, already landed (${type})`);
+        if (inboundId) log("inbound.landed", { inbound: inboundId, type });
+        else log("inbound.duplicate", { type });
       }
     } catch (error) {
       // Postgres down when a message arrives: it is not landed. Logged loudly,
       // without the message's content.
-      console.error("could not land a message batch:", (error as Error).message);
+      log("inbound.not_landed", { error: (error as Error).name, count: messages.length });
     }
   });
 }
@@ -56,7 +58,7 @@ function startSending(sock: WASocket): void {
   sending = new AbortController();
   const send = async (chat: string, body: string) =>
     (await sock.sendMessage(chat, { text: body }))?.key.id ?? undefined;
-  void runOutbox(db, send, sending.signal, (line) => console.log(line));
+  void runOutbox(db, send, sending.signal, log);
 }
 
 await runSession(config, {

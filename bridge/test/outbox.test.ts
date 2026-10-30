@@ -8,7 +8,14 @@ class FakeOutbox implements OutboxStore {
   rows: (Pending & { status: string; channelMessageId?: string | undefined })[] = [];
 
   add(id: string, body: string): void {
-    this.rows.push({ id, chat: "120000000000000001@g.us", body, attempts: 0, status: "pending" });
+    this.rows.push({
+      id,
+      chat: "120000000000000001@g.us",
+      body,
+      attempts: 0,
+      status: "pending",
+      dedupeKey: `reply:in-${id}`,
+    });
   }
 
   async nextPending(): Promise<Pending | undefined> {
@@ -36,7 +43,12 @@ test("a sent message is marked sent with WhatsApp's id", async () => {
   const outbox = new FakeOutbox();
   outbox.add("o1", "L1 registrado");
 
-  assert.deepEqual(await sendNext(outbox, delivered), { kind: "sent", id: "o1" });
+  assert.deepEqual(await sendNext(outbox, delivered), {
+    kind: "sent",
+    id: "o1",
+    inbound: "in-o1",
+    attempts: 1,
+  });
   assert.equal(outbox.rows[0]?.status, "sent");
   assert.equal(outbox.rows[0]?.channelMessageId, "3EB0000000000000000099");
 });
@@ -98,4 +110,18 @@ test("a resend request finds what the bot said by WhatsApp's id", async () => {
   assert.deepEqual(await lookup({ id: "3EB0000000000000000099" }), { conversation: "L1 registrado" });
   assert.equal(await lookup({ id: "3EB0000000000000000098" }), undefined);
   assert.equal(await lookup({ id: null }), undefined);
+});
+
+test("a failure's message never carries a JID into the log", async () => {
+  const outbox = new FakeOutbox();
+  outbox.add("o1", "L1 registrado");
+  const leaky: Send = async () => {
+    throw new Error("not-authorized for 120000000000000001@g.us from 100000000000001:3@lid");
+  };
+
+  const round = await sendNext(outbox, leaky);
+
+  assert.equal(round.kind, "retry");
+  assert.ok(round.kind === "retry" && !/\d{6,}@/.test(round.error));
+  assert.equal(round.kind === "retry" && round.error, "not-authorized for <jid> from <jid>");
 });

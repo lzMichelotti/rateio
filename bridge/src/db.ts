@@ -50,7 +50,7 @@ export class Db implements OutboxStore {
   // on pending rows; one at a time, so replies leave in the order they were made.
   async nextPending(): Promise<Pending | undefined> {
     const { rows } = await this.pool.query<Pending>(
-      `SELECT o.id, c.external_id AS chat, o.body, o.attempts
+      `SELECT o.id, c.external_id AS chat, o.body, o.attempts, o.dedupe_key AS "dedupeKey"
        FROM outbound_message o
        JOIN conversation c ON c.id = o.conversation_id
        WHERE o.status = 'pending' AND c.channel = $1
