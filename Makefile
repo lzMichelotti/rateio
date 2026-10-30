@@ -31,6 +31,7 @@ fmt:  ## format the code
 lint:  ## check formatting and lint rules
 	uv run ruff format --check .
 	uv run ruff check .
+	terraform fmt -check -recursive infra
 
 typecheck:  ## strict type check of the pure modules (src/ledger, src/channel)
 	uv run mypy
