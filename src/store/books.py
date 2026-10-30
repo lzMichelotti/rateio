@@ -35,6 +35,17 @@ def participant_for(
     return None if row is None else str(row[0])
 
 
+def identities(conn: psycopg.Connection, channel: str) -> dict[str, str]:
+    """Every identifier linked on a channel -> the participant it names."""
+    return {
+        external_id: participant_id
+        for external_id, participant_id in conn.execute(
+            "SELECT external_id, participant_id FROM channel_identity WHERE channel = %s",
+            (channel,),
+        )
+    }
+
+
 def member_names(conn: psycopg.Connection, book_id: UUID) -> list[tuple[str, str]]:
     """(participant id, display name) of every member, sorted by id."""
     return [

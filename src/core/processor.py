@@ -37,7 +37,7 @@ from channel.commands import (
     ShowStatement,
 )
 from channel.grammar import Member, ParseError, parse
-from channel.inbound import text_of
+from channel.inbound import sender_key, text_of
 from ledger.positions import position_summary, positions, projected_positions
 from ledger.refusal import Refusal
 from ledger.settlement_plan import book_settled, settlement_plan
@@ -115,7 +115,9 @@ def _process(conn: psycopg.Connection, inbound_id: UUID, rng: random.Random) -> 
 def _reply(
     conn: psycopg.Connection, message: inbox.Inbound, book_id: UUID, rng: random.Random
 ) -> str:
-    author_id = books.participant_for(conn, message.channel, message.sender_external_id)
+    author_id = books.participant_for(
+        conn, message.channel, sender_key(message.channel, message.sender_external_id)
+    )
     if author_id is None:
         return messages.unknown_sender()
     members = [Member(pid, name) for pid, name in books.member_names(conn, book_id)]
@@ -124,7 +126,13 @@ def _reply(
 
     today = business_date(message.received_at)
     parsed = parse(
-        text_of(message.channel, message.raw_payload), members=members, today=today
+        text_of(
+            message.channel,
+            message.raw_payload,
+            books.identities(conn, message.channel),
+        ),
+        members=members,
+        today=today,
     )
     if isinstance(parsed, ParseError):
         return messages.parse_error(parsed)
