@@ -238,17 +238,18 @@ def settlement_plan(
     return "\n".join(lines)
 
 
-HELP = """Comandos:
-!gasto <valor> <descrição> [dd/mm] — lança uma despesa dividida entre todos
-!pix @pessoa <valor> — avisa que você pagou alguém; vale quando a pessoa confirmar
-!ok <código> — confirma
-!nao <código> — recusa ou cancela
-!estorna L<n> — desfaz um lançamento
-!saldo — total gasto e a posição de cada um
-!extrato [n] — os últimos lançamentos (10 se não disser)
-!acerto — quem paga quem para zerar tudo
-!ajuda — esta lista
-Valores: 150, 150,50 ou 1.250,00."""
+# Examples instead of notation: the group reads "!gasto 45,90 pizza", not
+# "<valor> <descrição> [dd/mm]". Every example must parse (a test checks it).
+HELP = """Como usar:
+!gasto 45,90 pizza — lança uma despesa dividida entre todos
+!gasto 45,90 pizza 18/02 — o mesmo, com a data em que aconteceu
+!pix @joao 40 — avisa que você pagou alguém (vale quando a pessoa confirmar)
+!ok A7 — confirma (use o código que o bot mandar)
+!nao A7 — recusa ou cancela
+!estorna L5 — desfaz o lançamento L5
+!saldo — total gasto e quanto cada um deve ou tem a receber
+!extrato — os últimos 10 lançamentos (!extrato 20 para ver mais)
+!acerto — quem paga quem para zerar tudo"""
 
 
 def help_text() -> str:

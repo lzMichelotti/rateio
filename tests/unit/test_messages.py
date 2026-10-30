@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 
 from channel import messages
-from channel.grammar import ParseError, ParseReason
+from channel.grammar import Member, ParseError, ParseReason, parse
 from ledger.breaks import OVERPAYMENT, Break, IntentDuplicate, OutsideBookDates
 from ledger.expense import record_expense
 from ledger.positions import position_summary
@@ -239,7 +239,8 @@ def test_refusals_are_explained_from_their_fields():
     )
 
 
-def test_help_lists_every_command():
+def test_help_shows_every_command_but_itself():
+    # Whoever reads the help already found !ajuda.
     for verb in [
         "!gasto",
         "!pix",
@@ -249,6 +250,16 @@ def test_help_lists_every_command():
         "!saldo",
         "!extrato",
         "!acerto",
-        "!ajuda",
     ]:
         assert verb in messages.help_text()
+
+
+def test_every_example_in_the_help_is_a_command_the_grammar_reads():
+    members = [Member("joao", "João"), Member("lotti", "Lotti")]
+    examples = [line.split(" — ")[0] for line in messages.help_text().splitlines()[1:]]
+    examples.append("!extrato 20")  # given inside a line's explanation
+
+    for example in examples:
+        assert not isinstance(parse(example, members=members, today=DAY), ParseError), (
+            example
+        )

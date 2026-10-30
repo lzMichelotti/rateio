@@ -202,4 +202,4 @@ def test_the_read_commands_answer(chat):
     assert chat.say("vini", "!saldo").startswith("Total gasto: R$ 300,00")
     assert chat.say("vini", "!extrato").startswith("L1  26/12  gasolina")
     assert "Para zerar todo mundo:" in chat.say("vini", "!acerto")
-    assert chat.say("vini", "!ajuda").startswith("Comandos:")
+    assert chat.say("vini", "!ajuda").startswith("Como usar:")

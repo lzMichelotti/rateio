@@ -24,7 +24,7 @@ def reader(lines):
 def test_a_line_said_gets_its_reply_and_the_reply_is_marked_sent(session, conn):
     (reply,) = session.say("lotti", "!ajuda")
 
-    assert reply.startswith("Comandos:")
+    assert reply.startswith("Como usar:")
     assert conn.execute(
         "SELECT status, sent_at IS NOT NULL, attempts FROM outbound_message "
         "WHERE conversation_id = %s",
