@@ -22,7 +22,7 @@ import { afterClose } from "./reconnect.ts";
 
 const logger = pino({ level: "warn" });
 
-export type OnOpen = (sock: WASocket) => void;
+export type OnOpen = (sock: WASocket) => void | Promise<void>;
 
 // Runs until the session is ended from the phone (or taken over, or refused).
 // onOpen is called on every successful (re)connection.
@@ -73,7 +73,7 @@ export async function runSession(config: Config, onOpen: OnOpen = () => {}): Pro
         if (connection === "open") {
           attempt = 0;
           console.log("connected");
-          onOpen(sock);
+          void onOpen(sock);
         }
 
         if (connection === "close") {
