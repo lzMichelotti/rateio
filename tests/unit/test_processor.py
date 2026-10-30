@@ -5,6 +5,7 @@ each linked on the cli channel by their own id.
 """
 
 import random
+import re
 from datetime import UTC, datetime, timedelta
 from itertools import count
 
@@ -15,6 +16,7 @@ from ledger.positions import positions
 from store import inbox
 from store.ledger import book_postings
 
+RECORDED_L1 = "✅ *Registrado: L1*\ngasolina · R$ 300,00 · pago por Lotti"
 START = datetime(2026, 12, 26, 15, 0, tzinfo=UTC)
 
 
@@ -78,15 +80,15 @@ class Chat:
 
 
 def code_in(reply):
-    return reply.split("!ok ")[1].split()[0]
+    return re.search(r"!ok ([A-Z][2-9])", reply)[1]
 
 
 def test_an_expense_is_proposed_then_recorded(chat, conn, book):
     proposed = chat.say("lotti", "!gasto 300 gasolina")
     recorded = chat.say("lotti", f"!ok {code_in(proposed)}")
 
-    assert proposed.startswith("Lotti lançou R$ 300,00 de gasolina (26/12)")
-    assert recorded == "L1 registrado: gasolina, R$ 300,00, pago por Lotti."
+    assert "Lotti pagou *R$ 300,00* de gasolina (26/12)" in proposed
+    assert recorded == RECORDED_L1
     assert positions(book_postings(conn, book))["lotti"] == 24000
 
 
@@ -140,9 +142,7 @@ def test_a_crash_after_the_entry_leaves_nothing_and_a_retry_does_it_once(
     assert conn.execute(
         "SELECT count(*) FROM journal_entry WHERE book_id = %s", (book,)
     ).fetchone() == (1,)
-    assert (
-        chat.reply(inbound_id) == "L1 registrado: gasolina, R$ 300,00, pago por Lotti."
-    )
+    assert chat.reply(inbound_id) == RECORDED_L1
 
 
 def test_half_past_eleven_at_night_in_sao_paulo_is_still_that_day(chat):
@@ -157,10 +157,10 @@ def test_the_payee_rejects_and_the_payer_cancels(chat):
     first = code_in(chat.say("luis", "!pix @lotti 100"))
     second = code_in(chat.say("vini", "!pix @lotti 100"))
 
-    assert chat.say("lotti", f"!nao {first}").startswith(
-        "Lotti disse que o pix de R$ 100,00 de Luis não chegou"
+    assert "Lotti disse que os R$ 100,00 de Luis não chegaram" in chat.say(
+        "lotti", f"!nao {first}"
     )
-    assert chat.say("vini", f"!nao {second}").startswith("Vini cancelou o pix")
+    assert "Vini cancelou o pix" in chat.say("vini", f"!nao {second}")
 
 
 def test_repeating_an_ok_says_nothing_changed(chat):
@@ -199,7 +199,7 @@ def test_an_unknown_chat_is_processed_in_silence(chat):
 def test_the_read_commands_answer(chat):
     chat.say("lotti", f"!ok {code_in(chat.say('lotti', '!gasto 300 gasolina'))}")
 
-    assert chat.say("vini", "!saldo").startswith("Total gasto: R$ 300,00")
-    assert chat.say("vini", "!extrato").startswith("L1  26/12  gasolina")
-    assert "Para zerar todo mundo:" in chat.say("vini", "!acerto")
-    assert chat.say("vini", "!ajuda").startswith("Como usar:")
+    assert "Total gasto: *R$ 300,00*" in chat.say("vini", "!saldo")
+    assert "*L1* · 26/12 · gasolina" in chat.say("vini", "!extrato")
+    assert "*Para zerar todo mundo*" in chat.say("vini", "!acerto")
+    assert chat.say("vini", "!ajuda").startswith("👋 *Como usar o bot*")

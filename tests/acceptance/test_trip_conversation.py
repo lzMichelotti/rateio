@@ -80,13 +80,13 @@ def test_a_whole_trip_ends_on_the_known_positions_and_plan(conn):
     trip.spend("lotti", "!gasto 1250 airbnb")
 
     pix = trip.say("vini", "!pix @lotti 40")
-    assert pix.startswith("Vini diz que mandou um pix de R$ 40,00 para Lotti.")
+    assert "Vini diz que mandou *R$ 40,00* para Lotti" in pix
     trip.say("lotti", f"!ok {code(pix)}")
 
     trip.spend("lotti", "!gasto 1200 lanche")
     undo = trip.say("lotti", "!estorna L5")
     assert trip.say("lotti", f"!ok {code(undo)}") == (
-        "L6 registrado: estorno de L5 (lanche, R$ 1.200,00)."
+        "✅ *Desfeito: L5*\nlanche · R$ 1.200,00 · registrado como L6"
     )
     trip.spend("lotti", "!gasto 120 lanche")
 
@@ -119,10 +119,10 @@ def test_a_whole_trip_ends_on_the_known_positions_and_plan(conn):
         Transfer("vitor", "luis", 31545),
     )
     assert acerto.splitlines()[-4:] == [
-        "• Seph paga R$ 199,12 a Lotti",
-        "• Vini paga R$ 317,92 a Lotti",
-        "• Vitor paga R$ 155,04 a Lotti",
-        "• Vitor paga R$ 315,45 a Luis",
+        "• Seph paga *R$ 199,12* a Lotti",
+        "• Vini paga *R$ 317,92* a Lotti",
+        "• Vitor paga *R$ 155,04* a Lotti",
+        "• Vitor paga *R$ 315,45* a Luis",
     ]
 
     # The market's three leftover cents went to seph, vini and vitor, by seq 2,

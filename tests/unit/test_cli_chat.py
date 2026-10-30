@@ -24,7 +24,7 @@ def reader(lines):
 def test_a_line_said_gets_its_reply_and_the_reply_is_marked_sent(session, conn):
     (reply,) = session.say("lotti", "!ajuda")
 
-    assert reply.startswith("Como usar:")
+    assert reply.startswith("👋 *Como usar o bot*")
     assert conn.execute(
         "SELECT status, sent_at IS NOT NULL, attempts FROM outbound_message "
         "WHERE conversation_id = %s",
@@ -56,8 +56,8 @@ def test_switching_member_mid_conversation(session):
         write=out.append,
     )
 
-    assert out[0].startswith("  bot: Lotti lançou R$ 300,00 de gasolina")
-    assert out[1].startswith("  bot: Total gasto: R$ 0,00")
+    assert "Lotti pagou *R$ 300,00* de gasolina" in out[0]
+    assert "Total gasto: *R$ 0,00*" in out[1]
 
 
 def test_terminal_lines_are_never_sent_to_the_bot(session, conn):

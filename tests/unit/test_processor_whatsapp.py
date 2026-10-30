@@ -1,6 +1,7 @@
 """The processor reading WhatsApp messages as the bridge lands them (fake ids)."""
 
 import random
+import re
 from datetime import UTC, datetime, timedelta
 from itertools import count
 
@@ -61,23 +62,23 @@ def group(conn, book):
 
 
 def test_a_sender_with_a_device_suffix_is_recognised(group):
-    assert group("100000000000001:4@lid", "!saldo").startswith("Total gasto")
+    assert "Total gasto" in group("100000000000001:4@lid", "!saldo")
 
 
 def test_a_pix_mentioning_a_friend_is_declared_to_that_participant(group, conn):
-    code = group(LID["luis"], "!gasto 500 jantar").split("!ok ")[1].split()[0]
+    code = re.search(r"!ok ([A-Z][2-9])", group(LID["luis"], "!gasto 500 jantar"))[1]
     group(LID["luis"], f"!ok {code}")
 
     reply = group(LID["lotti"], "!pix @100000000000002 100", LID["luis"])
 
-    assert reply.startswith("Lotti diz que mandou um pix de R$ 100,00 para Luis.")
+    assert "Lotti diz que mandou *R$ 100,00* para Luis" in reply
     assert conn.execute(
         "SELECT payer_id, payee_id, amount_cents FROM settlement"
     ).fetchall() == [("lotti", "luis", 10000)]
 
 
 def test_mentioning_the_bot_in_front_of_a_command_runs_the_command(group):
-    assert group(LID["lotti"], "@100000000000009 !saldo", BOT).startswith("Total gasto")
+    assert "Total gasto" in group(LID["lotti"], "@100000000000009 !saldo", BOT)
 
 
 def test_mentioning_the_bot_with_free_text_points_to_help(group):

@@ -66,9 +66,17 @@ def test_an_expense_proposal_names_its_code_and_never_the_remainder():
     )
 
     assert text == (
-        "Vitor lançou R$ 187,43 de mercado (20/02), dividido entre 5.\n"
-        "Confirme com !ok A7 ou cancele com !nao A7."
+        "🧾 *Nova despesa*\n"
+        "Vitor pagou *R$ 187,43* de mercado (20/02)\n"
+        "Dividido entre 5 pessoas\n"
+        "\n"
+        "Para confirmar, mande:\n"
+        "*!ok A7*\n"
+        "\n"
+        "Para cancelar, mande:\n"
+        "*!nao A7*"
     )
+    assert "centavo" not in text
 
 
 def test_warnings_follow_the_proposal():
@@ -87,12 +95,17 @@ def test_warnings_follow_the_proposal():
         names=NAMES,
     )
 
-    assert text.splitlines()[2:] == [
+    assert text.split("\n\n")[3:] == [
         (
-            "Atenção: você lançou o mesmo valor e a mesma descrição há 2 min "
-            "(código K4). Se for outro gasto, confirme normalmente."
+            "⚠️ *Parece repetido*\n"
+            "Você lançou o mesmo valor e a mesma descrição há 2 min (código K4).\n"
+            "Se for outro gasto, confirme normalmente."
         ),
-        "Atenção: a data 02/11 está fora da viagem (15/02 a 25/02).",
+        (
+            "⚠️ *Data fora da viagem*\n"
+            "A data 02/11 não está entre 15/02 e 25/02.\n"
+            "Se estiver certa, confirme normalmente."
+        ),
     ]
 
 
@@ -100,8 +113,14 @@ def test_a_settlement_declaration_calls_the_payee():
     assert messages.settlement_declared(
         payer_id="vini", payee_id="lotti", amount_cents=4000, code="B3", names=NAMES
     ) == (
-        "Vini diz que mandou um pix de R$ 40,00 para Lotti.\n"
-        "Lotti, confirme com !ok B3 se chegou, ou !nao B3 se não chegou."
+        "💸 *Pix informado*\n"
+        "Vini diz que mandou *R$ 40,00* para Lotti\n"
+        "\n"
+        "Lotti, se o dinheiro chegou, mande:\n"
+        "*!ok B3*\n"
+        "\n"
+        "Se não chegou, mande:\n"
+        "*!nao B3*"
     )
 
 
@@ -112,7 +131,7 @@ def test_a_recorded_expense_says_what_and_who_but_not_the_remainder():
     (line,) = statement([expense(2, "vitor", 18743, "mercado")])
 
     assert messages.entry_recorded(line, names=NAMES) == (
-        "L2 registrado: mercado, R$ 187,43, pago por Vitor."
+        "✅ *Registrado: L2*\nmercado · R$ 187,43 · pago por Vitor"
     )
 
 
@@ -127,8 +146,11 @@ def test_a_recorded_settlement_and_its_overpayment():
     )
 
     assert text == (
-        "L4 registrado: pix de R$ 40,00 de Vini para Lotti.\n"
-        "Atenção: com esse pix, Vini pagou R$ 10,00 a mais do que devia."
+        "✅ *Pix confirmado: L4*\n"
+        "Vini pagou R$ 40,00 a Lotti\n"
+        "\n"
+        "⚠️ *Pagou a mais*\n"
+        "Com esse pix, Vini pagou R$ 10,00 a mais do que devia."
     )
 
 
@@ -138,7 +160,7 @@ def test_a_recorded_reversal_names_what_it_undoes():
     _, line = statement([wrong, undo])
 
     assert messages.entry_recorded(line, names=NAMES) == (
-        "L6 registrado: estorno de L5 (lanche, R$ 1.200,00)."
+        "✅ *Desfeito: L5*\nlanche · R$ 1.200,00 · registrado como L6"
     )
 
 
@@ -157,8 +179,10 @@ def test_positions_use_words_not_signs():
     assert messages.positions(
         position_summary(postings), members=FIVE, names=NAMES
     ).splitlines() == [
-        "Total gasto: R$ 300,00",
-        "Lotti: a receber R$ 240,00",
+        "💰 *Saldo*",
+        "Total gasto: *R$ 300,00*",
+        "",
+        "Lotti: recebe R$ 240,00",
         "Luis: deve R$ 60,00",
         "Seph: deve R$ 60,00",
         "Vini: deve R$ 60,00",
@@ -176,14 +200,22 @@ def test_the_statement_marks_reversals_on_both_sides_and_shows_payments():
     assert messages.statement(
         statement([wrong, undo, paid]), names=NAMES
     ).splitlines() == [
-        "L5  20/02  lanche  R$ 1.200,00  pago por Lotti  (estornado por L6)",
-        "L6  20/02  estorno de L5 (lanche, R$ 1.200,00)  −R$ 1.200,00",
-        "L7  20/02  pix de R$ 40,00 de Vini para Lotti",
+        "📋 *Últimos lançamentos*",
+        "",
+        "*L5* · 20/02 · lanche",
+        "R$ 1.200,00 · pago por Lotti",
+        "_desfeito pelo L6_",
+        "",
+        "*L6* · 20/02 · desfaz o L5 (lanche)",
+        "−R$ 1.200,00",
+        "",
+        "*L7* · 20/02 · pix de Vini para Lotti",
+        "R$ 40,00",
     ]
 
 
 def test_an_empty_statement():
-    assert messages.statement([], names=NAMES) == "Nenhum lançamento ainda."
+    assert messages.statement([], names=NAMES).endswith("Nenhum lançamento ainda.")
 
 
 def test_the_settlement_plan_lists_transfers_and_pending_payments():
@@ -199,18 +231,18 @@ def test_the_settlement_plan_lists_transfers_and_pending_payments():
     )
 
     assert text.splitlines()[-5:] == [
-        "Para zerar todo mundo:",
-        "• Lotti paga R$ 100,00 a Seph",
+        "*Para zerar todo mundo*",
+        "• Lotti paga *R$ 100,00* a Seph",
         "",
-        "Aguardando confirmação:",
-        "• pix de R$ 100,00 de Luis para Seph (código B3)",
+        "*Aguardando confirmação*",
+        "• Pix de R$ 100,00 de Luis para Seph (código B3)",
     ]
 
 
 def test_a_settled_trip_says_so():
     assert messages.settlement_plan(
         position_summary([]), [], [], settled=True, members=FIVE, names=NAMES
-    ) == ("Viagem quitada: ninguém deve nada.")
+    ).endswith("Viagem quitada: ninguém deve nada. 🎉")
 
 
 # -- what went wrong -------------------------------------------------------------
@@ -232,10 +264,10 @@ def test_every_refusal_reason_has_a_message():
 
 def test_refusals_are_explained_from_their_fields():
     assert messages.refusal(ExceedsDebtError("vini", 50000, 31792), names=NAMES) == (
-        "Vini deve R$ 317,92, e o pix de R$ 500,00 é maior que isso. Confira o valor."
+        "Vini deve R$ 317,92, e o pix de R$ 500,00 é maior que isso.\nConfira o valor."
     )
     assert messages.refusal(AlreadyReversedError(5, 6), names=NAMES).startswith(
-        "L5 já foi estornado por L6."
+        "L5 já foi desfeito pelo L6."
     )
 
 
@@ -256,8 +288,13 @@ def test_help_shows_every_command_but_itself():
 
 def test_every_example_in_the_help_is_a_command_the_grammar_reads():
     members = [Member("joao", "João"), Member("lotti", "Lotti")]
-    examples = [line.split(" — ")[0] for line in messages.help_text().splitlines()[1:]]
-    examples.append("!extrato 20")  # given inside a line's explanation
+    examples = [
+        part
+        for line in messages.help_text().splitlines()
+        if line.startswith("!")
+        for part in line.split(" · ")[0].split(" ou ")
+    ]
+    assert len(examples) >= 9
 
     for example in examples:
         assert not isinstance(parse(example, members=members, today=DAY), ParseError), (
