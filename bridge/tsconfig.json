@@ -14,7 +14,12 @@
     "noUncheckedIndexedAccess": true,
     // TypeScript 7 defaults types to []: without this, process and Buffer
     // are unknown.
-    "types": ["node"]
+    "types": ["node"],
+    // Baileys' own .d.ts files do not pass TypeScript 7 (extensionless
+    // imports, a missing type, no types for ws). We cannot fix the library;
+    // our code is still checked against its types.
+    // https://www.typescriptlang.org/tsconfig/#skipLibCheck
+    "skipLibCheck": true
   },
   "include": ["src", "test"]
 }
