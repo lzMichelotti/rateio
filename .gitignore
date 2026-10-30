@@ -7,8 +7,11 @@ CLAUDE.md
 .env*
 !.env.example
 
-# WhatsApp session credentials (Baileys)
+# WhatsApp session credentials (Baileys): whoever has them controls the account
 bridge/auth/
+
+# Node dependencies
+node_modules/
 
 # Generated reports may contain real names and amounts
 *.xlsx

@@ -1,0 +1,26 @@
+{
+  "name": "rateio-bridge",
+  "private": true,
+  "description": "Keeps the WhatsApp session: lands messages addressed to the bot, sends the outbox. Knows nothing about money.",
+  "type": "module",
+  "engines": {
+    "node": ">=26 <27"
+  },
+  "scripts": {
+    "typecheck": "tsc",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "@types/pg": "8.23.1",
+    "typescript": "7.0.2"
+  },
+  "allowScripts": {
+    "@whiskeysockets/baileys": false,
+    "protobufjs": false
+  }
+}
